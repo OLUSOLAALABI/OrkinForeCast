@@ -5,11 +5,11 @@ import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import {
-  Upload,
   LineChart,
   Building2,
   MapPin,
   Users,
+  UserPlus,
   Settings,
   Home,
   History,
@@ -29,20 +29,18 @@ type Profile = {
 const navItems = {
   branch_user: [
     { href: "/dashboard", label: "Dashboard", icon: Home },
-    { href: "/dashboard/upload", label: "Upload Data", icon: Upload },
     { href: "/dashboard/forecast", label: "Forecasts", icon: LineChart },
     { href: "/dashboard/activity", label: "Activity", icon: History },
   ],
   region_admin: [
     { href: "/dashboard", label: "Dashboard", icon: Home },
-    { href: "/dashboard/upload", label: "Upload Data", icon: Upload },
     { href: "/dashboard/forecast", label: "Forecasts", icon: LineChart },
     { href: "/dashboard/branches", label: "Branches", icon: Building2 },
     { href: "/dashboard/activity", label: "Activity", icon: History },
   ],
   hq_admin: [
     { href: "/dashboard", label: "Dashboard", icon: Home },
-    { href: "/dashboard/upload", label: "Upload Data", icon: Upload },
+    { href: "/dashboard/create-account", label: "Create account", icon: UserPlus },
     { href: "/dashboard/forecast", label: "Forecasts", icon: LineChart },
     { href: "/dashboard/branches", label: "Branches", icon: Building2 },
     { href: "/dashboard/regions", label: "Regions", icon: MapPin },

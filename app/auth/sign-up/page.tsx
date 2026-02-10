@@ -230,7 +230,7 @@ export default function SignUpPage() {
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              Need an HQ Admin or Region Admin account? Ask your administrator to create one from the Dashboard or Supabase.
+              Need an HQ Admin or Region Admin account? Ask your administrator to create one
             </p>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">

@@ -69,6 +69,8 @@ Follow these steps to connect the app to Supabase.
 
 7. **If you previously ran the old schema with 77 branches** and want to keep only the 49 operational branches, run `scripts/003_operational_branches_only.sql` in the SQL Editor. This removes the other branches and their actuals/forecasts/uploads; users with a removed branch will have their `branch_id` cleared.
 
+8. **For HQ Admin “Create account” (invite HQ/Region Admin with role):** run `scripts/004_pending_invites.sql` in the SQL Editor. This adds the `pending_invites` table and updates the signup trigger so invited users get the correct role (HQ Admin or Region Admin) when they first sign in.
+
 ---
 
 ## 5. Configure Auth redirect (email confirmation & password reset)

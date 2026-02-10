@@ -21,10 +21,14 @@ function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
+  const confirmed = searchParams.get("confirmed") === "1"
+
   useEffect(() => {
     const err = searchParams.get("error")
-    if (err === "auth_callback_failed") {
-      setError("Invalid or expired link. Please try again or request a new link.")
+    if (err === "otp_expired" || err === "auth_callback_failed") {
+      setError("Invalid or expired link. Please sign in below or request a new confirmation email.")
+    } else if (err === "auth_failed") {
+      setError("Something went wrong. Please try signing in again.")
     }
   }, [searchParams])
 
@@ -61,9 +65,24 @@ function LoginForm() {
         </CardHeader>
         <form onSubmit={handleLogin}>
           <CardContent className="space-y-4">
+            {confirmed && (
+              <Alert className="border-green-500/50 bg-green-500/10 text-green-700 dark:text-green-400">
+                <AlertDescription>Your email is confirmed. Sign in below to go to your dashboard.</AlertDescription>
+              </Alert>
+            )}
             {error && (
               <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
+                <AlertDescription>
+                  {error}
+                  {(searchParams.get("error") === "otp_expired" || searchParams.get("error") === "auth_callback_failed") && (
+                    <>
+                      {" "}
+                      <Link href="/auth/sign-up-success" className="underline font-medium">
+                        Request a new confirmation email
+                      </Link>
+                    </>
+                  )}
+                </AlertDescription>
               </Alert>
             )}
             <div className="space-y-2">

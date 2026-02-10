@@ -62,3 +62,14 @@ Use this checklist when hosting the app on Vercel so auth (login, sign-up, passw
 - [ ] Supabase Auth → URL Configuration: **Redirect URLs** include `https://your-app.vercel.app/auth/callback`, `/dashboard`, `/auth/reset-password`
 - [ ] Supabase Auth → URL Configuration: **Site URL** = `https://your-app.vercel.app` (recommended)
 - [ ] Redeploy on Vercel after changing env vars
+
+---
+
+## Production readiness
+
+- **Auth:** Login, sign-up, password reset, invite (HQ), email confirmation redirect (hash + callback) are wired. Set `NEXT_PUBLIC_APP_URL` to the live URL so confirmation emails point to production.
+- **Roles:** Dashboard layout and sidebar respect `branch_user`, `region_admin`, `hq_admin`. Branch users see only their branch on Forecasts; no upload flow.
+- **Data:** App expects three-year actuals loaded (e.g. via `scripts/import-actuals.mjs`). Forecasts are generated from that data.
+- **Errors:** Root and dashboard `error.tsx` boundaries catch runtime errors; auth errors redirect to login with messages.
+- **API:** `/api/test-supabase` is a health check (no secrets). Optional: restrict to dev or remove in prod. `/api/invite` requires HQ admin and `SUPABASE_SERVICE_ROLE_KEY`.
+- **Build:** Ensure `pnpm build` passes. If you use `ignoreBuildErrors: true` in `next.config.mjs`, fix TypeScript errors and set it back to `false` for production.

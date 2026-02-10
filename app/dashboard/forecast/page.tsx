@@ -61,6 +61,7 @@ export default function ForecastPage() {
   const years = [2024, 2025, 2026, 2027, 2028]
   const months = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: getShortMonthName(i + 1) }))
 
+  // When profile loads, branch users get their branch auto-selected; others get branch list
   useEffect(() => {
     const fetchData = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -74,20 +75,24 @@ export default function ForecastPage() {
 
       if (profileData) {
         setProfile(profileData)
-        
-        if (profileData.role === "branch_user" && profileData.branch_id) {
-          setSelectedBranch(profileData.branch_id)
-        } else {
-          const { data: branchData } = await supabase
-            .from("branches")
-            .select("*, regions(name)")
-            .order("name")
-          if (branchData) {
-            setBranches(branchData)
-            // Pre-select branch from URL when HQ/region_admin clicks from Branches page
-            if (branchFromUrl && branchData.some((b: Branch) => b.id === branchFromUrl)) {
-              setSelectedBranch(branchFromUrl)
-            }
+
+        if (profileData.role === "branch_user") {
+          // Branch users always see their assigned branch — no selector
+          if (profileData.branch_id) {
+            setSelectedBranch(profileData.branch_id)
+          }
+          setLoading(false)
+          return
+        }
+
+        const { data: branchData } = await supabase
+          .from("branches")
+          .select("*, regions(name)")
+          .order("name")
+        if (branchData) {
+          setBranches(branchData)
+          if (branchFromUrl && branchData.some((b: Branch) => b.id === branchFromUrl)) {
+            setSelectedBranch(branchFromUrl)
           }
         }
       }
@@ -156,7 +161,7 @@ export default function ForecastPage() {
       if (actualsError) throw actualsError
 
       if (!actualsData || actualsData.length === 0) {
-        setError("No actuals data found. Please upload data first.")
+        setError("No actuals data found for this branch.")
         setGenerating(false)
         return
       }
@@ -383,7 +388,7 @@ export default function ForecastPage() {
       {selectedBranch && (
         <Alert className="bg-muted/50">
           <AlertDescription>
-            Forecasts use <strong>last year actuals</strong>, <strong>current year to date</strong>, and <strong>budget</strong> (from Budget uploads when available, otherwise derived from last year). Generate after uploading actuals (and optionally budget) for accurate results. <strong>As of month</strong> uses server date (UTC) when not changed.
+            Forecasts use your branch&apos;s three-year actuals and budget (derived from last year when needed). Click <strong>Generate</strong> to create or refresh forecasts. <strong>As of month</strong> uses server date (UTC) when not changed.
           </AlertDescription>
         </Alert>
       )}
@@ -495,22 +500,44 @@ export default function ForecastPage() {
         </>
       )}
 
+      {selectedBranch && loading && (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
+            <p className="text-muted-foreground">Loading your branch data…</p>
+          </CardContent>
+        </Card>
+      )}
+
       {selectedBranch && forecasts.length === 0 && !loading && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <LineChart className="h-12 w-12 text-muted-foreground mb-4" />
             <h2 className="text-xl font-semibold">No Forecasts Yet</h2>
             <p className="text-muted-foreground mt-2 text-center max-w-md">
-              Upload your actuals data first, then click Generate to create forecasts for {currentYear}.
+              Your branch&apos;s three-year data is already loaded. Click <strong>Generate</strong> above (or below) to create forecasts for {currentYear}.
             </p>
-            <Button className="mt-4" onClick={() => window.location.href = "/dashboard/upload"}>
-              Upload Data
+            <Button className="mt-4" onClick={generateForecasts} disabled={generating}>
+              {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Generate Forecast
             </Button>
           </CardContent>
         </Card>
       )}
 
-      {!selectedBranch && (
+      {!selectedBranch && profile?.role === "branch_user" && (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <LineChart className="h-12 w-12 text-muted-foreground mb-4" />
+            <h2 className="text-xl font-semibold">Branch not assigned</h2>
+            <p className="text-muted-foreground mt-2 text-center max-w-md">
+              Your account is not assigned to a branch. Contact your administrator to get access.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {!selectedBranch && profile?.role !== "branch_user" && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <LineChart className="h-12 w-12 text-muted-foreground mb-4" />

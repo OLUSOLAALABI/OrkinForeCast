@@ -10,7 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { History, Upload, FileSpreadsheet } from "lucide-react"
+import { History, FileSpreadsheet } from "lucide-react"
 
 export default async function ActivityPage() {
   const supabase = await createClient()
@@ -66,7 +66,7 @@ export default async function ActivityPage() {
       <div>
         <h1 className="text-3xl font-bold text-foreground">Activity</h1>
         <p className="text-muted-foreground mt-1">
-          Upload history — who uploaded what and when
+          Activity history (imports and data changes)
         </p>
       </div>
 
@@ -77,7 +77,7 @@ export default async function ActivityPage() {
             Upload history
           </CardTitle>
           <CardDescription>
-            Recent data uploads (actuals or budget) by user and branch
+            Record of data imports by user and branch
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -126,10 +126,10 @@ export default async function ActivityPage() {
 
           {(!rows || rows.length === 0) && (
             <div className="flex flex-col items-center justify-center py-12">
-              <Upload className="h-12 w-12 text-muted-foreground mb-4" />
-              <h2 className="text-xl font-semibold">No uploads yet</h2>
+              <History className="h-12 w-12 text-muted-foreground mb-4" />
+              <h2 className="text-xl font-semibold">No activity yet</h2>
               <p className="text-muted-foreground mt-2">
-                Upload activity will appear here.
+                Activity will appear here when data is imported or changed.
               </p>
             </div>
           )}

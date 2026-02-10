@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Upload, LineChart, Building2, TrendingUp } from "lucide-react"
+import { LineChart, Building2, TrendingUp } from "lucide-react"
 import Link from "next/link"
 
 export default async function DashboardPage() {
@@ -17,15 +16,6 @@ export default async function DashboardPage() {
   // Fetch stats based on role (branch_user: only their branch)
   const isBranchUser = profile?.role === "branch_user"
   const userBranchId = profile?.branch_id ?? null
-
-  const { count: uploadsCount } = isBranchUser && userBranchId
-    ? await supabase
-        .from("uploads")
-        .select("*", { count: "exact", head: true })
-        .eq("branch_id", userBranchId)
-    : await supabase
-        .from("uploads")
-        .select("*", { count: "exact", head: true })
 
   const { count: forecastsCount } = isBranchUser && userBranchId
     ? await supabase
@@ -52,16 +42,6 @@ export default async function DashboardPage() {
     branchesCount = count
   }
 
-  // Recent uploads: branch_user only their branch, others per RLS
-  const recentUploadsQuery = supabase
-    .from("uploads")
-    .select("*, branches(name)")
-    .order("created_at", { ascending: false })
-    .limit(5)
-  const { data: recentUploads } = isBranchUser && userBranchId
-    ? await recentUploadsQuery.eq("branch_id", userBranchId)
-    : await recentUploadsQuery
-
   return (
     <div className="space-y-6">
       <div>
@@ -79,21 +59,6 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Uploads
-            </CardTitle>
-            <Upload className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{uploadsCount || 0}</div>
-            <p className="text-xs text-muted-foreground">
-              {isBranchUser ? "Uploads for your branch" : "Data files uploaded"}
-            </p>
-          </CardContent>
-        </Card>
-
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -150,21 +115,7 @@ export default async function DashboardPage() {
             <CardTitle>Quick Actions</CardTitle>
             <CardDescription>Common tasks you can perform</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3">
-            <Link
-              href="/dashboard/upload"
-              className="flex items-center gap-4 p-4 rounded-lg border border-border hover:bg-accent/50 transition-colors"
-            >
-              <div className="rounded-full bg-primary/10 p-2">
-                <Upload className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="font-medium">Upload Excel Data</p>
-                <p className="text-sm text-muted-foreground">
-                  Upload actuals or budget data from Excel files
-                </p>
-              </div>
-            </Link>
+          <CardContent>
             <Link
               href="/dashboard/forecast"
               className="flex items-center gap-4 p-4 rounded-lg border border-border hover:bg-accent/50 transition-colors"
@@ -173,50 +124,12 @@ export default async function DashboardPage() {
                 <LineChart className="h-5 w-5 text-accent" />
               </div>
               <div>
-                <p className="font-medium">View Forecasts</p>
+                <p className="font-medium">View &amp; Generate Forecasts</p>
                 <p className="text-sm text-muted-foreground">
-                  Review and generate monthly forecasts for 2026
+                  Your branch data is pre-loaded. Generate and review monthly forecasts for 2026.
                 </p>
               </div>
             </Link>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Uploads</CardTitle>
-            <CardDescription>
-              {isBranchUser ? "Latest uploads for your branch" : "Latest data files uploaded"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {recentUploads && recentUploads.length > 0 ? (
-              <div className="space-y-4">
-                {recentUploads.map((upload) => (
-                  <div
-                    key={upload.id}
-                    className="flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-full bg-muted p-2">
-                        <Upload className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{upload.file_name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {upload.branches?.name}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge variant="secondary">{upload.upload_type}</Badge>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No uploads yet. Start by uploading your Excel data.
-              </p>
-            )}
           </CardContent>
         </Card>
       </div>

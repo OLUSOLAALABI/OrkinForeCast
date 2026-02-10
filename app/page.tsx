@@ -2,7 +2,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import Image from "next/image"
-import { BarChart3, Upload, LineChart, Shield, Building2, Users } from "lucide-react"
+import { BarChart3, Database, LineChart, Shield, Building2, Users } from "lucide-react"
 
 export default function HomePage() {
   return (
@@ -28,7 +28,7 @@ export default function HomePage() {
           Orkin - Branch Forecasting Made Simple
         </h1>
         <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto text-pretty">
-          Upload your Excel data and generate accurate monthly forecasts for 2026. 
+          Three-year branch data is pre-loaded. Sign in to generate and view monthly forecasts for 2026. 
           Role-based access ensures the right people see the right data.
         </p>
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -52,11 +52,11 @@ export default function HomePage() {
           <Card>
             <CardHeader>
               <div className="rounded-full bg-primary/10 p-3 w-fit mb-2">
-                <Upload className="h-6 w-6 text-primary" />
+                <Database className="h-6 w-6 text-primary" />
               </div>
-              <CardTitle>Excel Upload</CardTitle>
+              <CardTitle>Pre-loaded Branch Data</CardTitle>
               <CardDescription>
-                Upload your actuals and budget data directly from Excel files with automatic parsing
+                Three years of actuals per branch are already in the system. Generate forecasts without uploading files.
               </CardDescription>
             </CardHeader>
           </Card>
@@ -104,7 +104,7 @@ export default function HomePage() {
               </div>
               <CardTitle>Team Collaboration</CardTitle>
               <CardDescription>
-                Multiple users can upload data and view forecasts based on their access level
+                Multiple users can view and generate forecasts based on their access level
               </CardDescription>
             </CardHeader>
           </Card>
@@ -158,7 +158,7 @@ export default function HomePage() {
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li>Access all branches in region</li>
                 <li>View regional forecasts</li>
-                <li>Upload data for any branch</li>
+                <li>View and generate forecasts for any branch in region</li>
                 <li>Monitor regional performance</li>
               </ul>
             </CardContent>
@@ -174,7 +174,7 @@ export default function HomePage() {
             <CardContent>
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li>Access own branch only</li>
-                <li>Upload branch data</li>
+                <li>Generate and view branch forecasts</li>
                 <li>Generate branch forecasts</li>
                 <li>View branch performance</li>
               </ul>
@@ -189,7 +189,7 @@ export default function HomePage() {
           <CardContent className="py-12">
             <h2 className="text-3xl font-bold mb-4">Ready to Start Forecasting?</h2>
             <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
-              Create an account and start uploading your data today. 
+              Create an account and start generating forecasts today. 
               Generate accurate forecasts for your branches in minutes.
             </p>
             <Link href="/auth/sign-up">
