@@ -82,10 +82,13 @@ export default function SignUpPage() {
       email,
       password,
       options: {
-        emailRedirectTo:
-          process.env.NEXT_PUBLIC_APP_URL
-            ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/dashboard`
-            : `${window.location.origin}/auth/callback?next=/dashboard`,
+        emailRedirectTo: (() => {
+          const base =
+            typeof window !== 'undefined' && !/^https?:\/\/localhost(:\d+)?(\/|$)/i.test(window.location.origin)
+              ? window.location.origin
+              : process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '')
+          return base ? `${base.replace(/\/$/, '')}/auth/callback?next=/dashboard` : undefined
+        })(),
         data: {
           full_name: fullName,
           role: role,

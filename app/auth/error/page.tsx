@@ -25,11 +25,16 @@ export default function AuthErrorPage() {
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
             The link may have expired or there was an error during the authentication process.
-            Please try signing in again.
+            Confirmation links expire after about an hour and can only be used once.
           </p>
-          <Button asChild className="w-full">
-            <Link href="/auth/login">Back to Sign In</Link>
-          </Button>
+          <div className="flex flex-col gap-2">
+            <Button asChild className="w-full">
+              <Link href="/auth/login">Back to Sign In</Link>
+            </Button>
+            <Button asChild variant="outline" className="w-full">
+              <Link href="/auth/sign-up-success">Request a new confirmation email</Link>
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
