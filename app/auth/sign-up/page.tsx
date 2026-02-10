@@ -111,7 +111,7 @@ export default function SignUpPage() {
         .eq("id", userData.user.id)
     }
 
-    router.push("/auth/sign-up-success")
+    router.push(`/auth/sign-up-success?email=${encodeURIComponent(email.trim())}`)
   }
 
   return (

@@ -5,7 +5,10 @@ import { Mail } from "lucide-react"
 import Link from "next/link"
 import { ResendConfirmationForm } from "@/components/auth/resend-confirmation-form"
 
-export default function SignUpSuccessPage() {
+type Props = { searchParams: Promise<{ email?: string }> }
+
+export default async function SignUpSuccessPage({ searchParams }: Props) {
+  const { email: emailFromUrl } = await searchParams
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md text-center">
@@ -28,7 +31,7 @@ export default function SignUpSuccessPage() {
             Please check your inbox and click the confirmation link to complete your registration.
             After confirming, you can sign in to access your dashboard.
           </p>
-          <ResendConfirmationForm />
+          <ResendConfirmationForm initialEmail={emailFromUrl ?? ""} />
           <Button asChild className="w-full">
             <Link href="/auth/login">Back to Sign In</Link>
           </Button>

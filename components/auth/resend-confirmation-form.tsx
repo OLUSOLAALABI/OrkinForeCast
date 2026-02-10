@@ -1,15 +1,20 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Loader2 } from "lucide-react"
 
-export function ResendConfirmationForm() {
-  const [email, setEmail] = useState("")
+type Props = { initialEmail?: string }
+
+export function ResendConfirmationForm({ initialEmail = "" }: Props) {
+  const [email, setEmail] = useState(initialEmail)
   const [loading, setLoading] = useState(false)
+  useEffect(() => {
+    if (initialEmail) setEmail(initialEmail)
+  }, [initialEmail])
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
 
   const handleResend = async (e: React.FormEvent) => {

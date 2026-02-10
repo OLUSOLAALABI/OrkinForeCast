@@ -87,7 +87,17 @@ Follow these steps to connect the app to Supabase.
 
 ---
 
-## 6. How sign-up and roles work
+## 6. Confirmation email (sign-up)
+
+If users say they **didn’t receive the confirmation email**:
+
+1. **Check spam/junk** – Supabase sends from a shared domain; messages often land in spam.
+2. **Resend** – On the “Check your email” page, the email is pre-filled; they can click **Resend** to send the link again.
+3. **Disable “Confirm email” (optional)** – In Supabase go to **Authentication** → **Providers** → **Email**. Turn off **“Confirm email”** so new users can sign in without clicking a link. Use this for internal/testing; for production you may want to keep confirmation on and use custom SMTP (Supabase → Project Settings → Auth → SMTP) so emails come from your domain and are less likely to be filtered.
+
+---
+
+## 7. How sign-up and roles work
 
 | Role | How they get an account | Who can create |
 |------|-------------------------|----------------|
@@ -101,7 +111,7 @@ Follow these steps to connect the app to Supabase.
 
 ---
 
-## 7. Create your first HQ admin
+## 8. Create your first HQ admin
 
 New sign-ups are Branch Users. To get your first HQ admin:
 
@@ -124,7 +134,7 @@ New sign-ups are Branch Users. To get your first HQ admin:
 
 ---
 
-## 8. Verify
+## 9. Verify
 
 1. Run the app: `pnpm dev`
 2. Open **http://localhost:3000**
