@@ -14,6 +14,7 @@ Monthly forecasting app for **49 operational branches** across 6 regions, with r
    ```bash
    pnpm install
    ```
+   After adding or changing dependencies in `package.json`, run `pnpm install` again and commit `pnpm-lock.yaml` so Vercel (and CI) can install with a frozen lockfile.
 
 2. **Environment**
    - Copy `.env.example` to `.env`
@@ -59,6 +60,7 @@ Use **Upload Data** → **Download template** in the app, or see **[UPLOAD_FORMA
 ## Docs
 
 - **[SUPABASE_SETUP.md](./SUPABASE_SETUP.md)** – Supabase project, schema, auth redirects, roles
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** – Deploy to Vercel (env vars + Supabase redirect URLs)
 - **[UPLOAD_FORMAT.md](./UPLOAD_FORMAT.md)** – Excel layout and tips for accurate forecasting
 - **[TESTING_ROLES.md](./TESTING_ROLES.md)** – Test login and RLS for HQ Admin, Region Admin, Branch User
 
