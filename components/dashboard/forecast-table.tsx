@@ -45,7 +45,7 @@ import { cn } from "@/lib/utils"
 const KPI_REVENUE = "TOTAL NET REVENUE"
 const KPI_EXPENSE_LINES = new Set(["TOTAL EXPENSES", "TOTAL OVERHEAD ALLOCATIONS"])
 
-// Items hidden from display (below External Profit + duplicates)
+// Items hidden from display (below External Profit)
 const HIDDEN_BELOW_EXTERNAL = new Set([
   "FOREIGN EXCHANGE GAIN/LOSS",
   "ROYALTY FEES",
@@ -53,7 +53,6 @@ const HIDDEN_BELOW_EXTERNAL = new Set([
   "CANADIAN TAXES",
   "NON-OP INT EXP/(REV)",
   "NET PROFIT",
-  "COMMERCIAL BED BUG REVENUE",  // only the (recur) version should display
 ])
 
 // Statutory/fixed lines — non-editable (use budget figures)
@@ -95,6 +94,7 @@ const TEMPLATE_ORDER = [
   "NET CONTRACT REVENUE",
   "MISCELLANEOUS REVENUE",
   "RESIDENTIAL BED BUG REVENUE",
+  "COMMERCIAL BED BUG REVENUE",
   "RESIDENTIAL SPECIAL SERVICES",
   "COMMERCIAL SPECIAL SERVICES",
   "PRODUCT SALES",
