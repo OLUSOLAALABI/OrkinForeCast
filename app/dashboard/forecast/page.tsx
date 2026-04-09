@@ -492,9 +492,9 @@ export default function ForecastPage() {
         }
         setRawForecastRows(existingForecasts)
       }
-    } catch (err) {
-      console.error("Error loading forecasts:", err)
-      setError("Failed to load forecasts")
+    } catch (err: any) {
+      console.error("Error loading forecasts:", err?.message || err?.code || JSON.stringify(err) || err)
+      setError(err?.message || "Failed to load forecasts")
     } finally {
       setLoading(false)
     }

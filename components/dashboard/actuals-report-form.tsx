@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils"
 const TEMPLATE_ORDER = [
     "PEST CONTROL REVENUE",
     "COMMERCIAL REVENUE",
-    "COMMERCIAL BED BUG REVENUE",
+    "COMMERCIAL BED BUG REVENUE (recur)",
     "FLY CONTROL",
     "ORKIN/AIRE",
     "FEMININE HYGIENE",
