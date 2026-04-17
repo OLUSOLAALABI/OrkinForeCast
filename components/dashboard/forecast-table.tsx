@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, Fragment } from "react"
 import {
   Table,
   TableBody,
@@ -298,6 +298,11 @@ export function ForecastTable({
   const [showBudget, setShowBudget] = useState(true)
   const [showActual, setShowActual] = useState(false)
 
+  // Floating row indicator
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null)
+  const [hoveredMonth, setHoveredMonth] = useState<number | null>(null)
+  const [hoveredMetric, setHoveredMetric] = useState<string | null>(null)
+
   // Filter forecasts by view mode
   const filteredForecasts = forecasts.filter((f) => {
     if (viewMode === "revenue") return isRevenueLine(f.description)
@@ -468,37 +473,68 @@ export function ForecastTable({
         </div>
       </div>
 
-      <div className="overflow-x-auto border rounded-lg">
+      {hoveredRow && (
+        <div className="fixed right-4 top-1/2 -translate-y-1/2 z-50 bg-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold shadow-lg rounded-lg pointer-events-none">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4 shrink-0" />
+            <span className="truncate max-w-[240px]">{hoveredRow}</span>
+          </div>
+          {(hoveredMonth !== null || hoveredMetric) && (
+            <div className="text-xs font-normal opacity-80 mt-1 pl-6 flex items-center gap-1.5">
+              {hoveredMonth !== null && <span>{hoveredMonth === 0 ? 'Annual Total' : `${getShortMonthName(hoveredMonth)} 2026`}</span>}
+              {hoveredMonth !== null && hoveredMetric && <span>&middot;</span>}
+              {hoveredMetric && <span>{hoveredMetric}</span>}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="border rounded-lg relative">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/30">
-              <TableHead className="sticky left-0 bg-muted/80 backdrop-blur-sm z-10 min-w-[200px]">Description</TableHead>
+              <TableHead rowSpan={2} className="min-w-[200px] font-medium align-middle border-r bg-muted/80">Description</TableHead>
               {months.map(month => (
                 <TableHead
                   key={month}
+                  colSpan={3}
                   className={cn(
-                    "text-center min-w-[120px] font-bold",
+                    "text-center font-bold border-l",
                     month === currentMonth && "bg-primary/5"
                   )}
                 >
                   {getShortMonthName(month)}
                 </TableHead>
               ))}
-              <TableHead className="text-right min-w-[120px] bg-muted/50 font-bold">Annual total</TableHead>
+              <TableHead colSpan={2} className="text-center bg-muted/50 font-bold border-l">Annual Total</TableHead>
+            </TableRow>
+            <TableRow className="bg-muted/20 text-xs">
+              {months.map(month => (
+                <Fragment key={month}>
+                  <TableHead className={cn("text-center min-w-[120px] font-medium border-l", month === currentMonth && "bg-primary/5")}>Forecast</TableHead>
+                  <TableHead className={cn("text-center min-w-[120px] font-medium text-muted-foreground", month === currentMonth && "bg-primary/5")}>Budget</TableHead>
+                  <TableHead className={cn("text-center min-w-[120px] font-medium text-muted-foreground", month === currentMonth && "bg-primary/5")}>Last Year</TableHead>
+                </Fragment>
+              ))}
+              <TableHead className="text-center min-w-[120px] font-medium bg-muted/50 border-l">Forecast</TableHead>
+              <TableHead className="text-center min-w-[120px] font-medium bg-muted/50 text-muted-foreground">Budget</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {descriptions.map(description => {
+            {descriptions.map((description, idx) => {
               const descForecasts = filteredForecasts.filter(f => f.description === description)
-              // Annual total based on current metrics
-              const ytdTotal = descForecasts.reduce((sum, f) => {
-                if (showActual && f.actualValue) return sum + f.actualValue
-                return sum + f.forecastValue
-              }, 0)
+              const ytdForecast = descForecasts.reduce((sum, f) => sum + f.forecastValue, 0)
+              const ytdBudget = descForecasts.reduce((sum, f) => sum + f.budgetValue, 0)
+              const isEven = idx % 2 === 0
 
               return (
-                <TableRow key={description} className="hover:bg-muted/20">
-                  <TableCell className="sticky left-0 bg-background/95 backdrop-blur-sm z-10 font-medium py-3 border-r">
+                <TableRow
+                  key={description}
+                  className={cn("hover:bg-accent/30", isEven ? "bg-background" : "bg-muted/20")}
+                  onMouseEnter={() => setHoveredRow(description)}
+                  onMouseLeave={() => { setHoveredRow(null); setHoveredMonth(null); setHoveredMetric(null) }}
+                >
+                  <TableCell className="font-medium py-3 border-r">
                     <span className={cn(isSubtotalDescription(description) && "font-bold text-foreground")}>
                       {description}
                     </span>
@@ -509,62 +545,45 @@ export function ForecastTable({
                     const isClickable = editable && onUpdateForecast && f && isLeafDescription(description) && !BUDGET_ONLY_DESCS.has(normDesc(description))
 
                     return (
-                      <TableCell
-                        key={month}
-                        className={cn(
-                          "text-center p-2 relative group",
-                          isCurrent && "bg-primary/5",
-                          isClickable && "cursor-pointer hover:bg-muted/40 transition-colors"
-                        )}
-                        onClick={() => isClickable && handleCellClick(description, month, f.forecastValue)}
-                      >
-                        <div className="flex flex-col gap-1 text-[11px]">
-                          {showActual && (
-                            <div className="flex flex-col">
-                              <span className="text-primary font-bold text-sm">
-                                {f?.actualValue ? formatCurrency(f.actualValue) : "$0"}
-                              </span>
-                              {f?.actualValue && f.forecastValue > 0 && (
-                                <span className={cn("text-[9px] font-medium", (f.actualValue - f.forecastValue) >= 0 ? "text-accent" : "text-destructive")}>
-                                  vs F: {formatPercent((f.actualValue - f.forecastValue) / f.forecastValue)}
-                                </span>
-                              )}
-                            </div>
+                      <Fragment key={month}>
+                        <TableCell
+                          className={cn(
+                            "text-center p-2 relative group border-l",
+                            isCurrent && "bg-primary/5",
+                            isClickable && "cursor-pointer hover:bg-muted/40 transition-colors"
                           )}
-                          {showForecast && (
-                            <div className="flex flex-col border-t border-dotted border-border/50 pt-1 mt-1">
-                              <span className={cn("text-xs font-semibold", !showActual && "text-sm")}>
-                                {f ? formatCurrency(f.forecastValue) : "-"}
-                              </span>
-                              {showForecast && !showActual && f && f.variancePercent !== 0 && (
-                                <span className={cn("text-[9px]", f.variancePercent >= 0 ? "text-accent" : "text-destructive")}>
-                                  vs B: {formatPercent(f.variancePercent)}
-                                </span>
-                              )}
-                            </div>
+                          onClick={() => isClickable && handleCellClick(description, month, f.forecastValue)}
+                          onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Forecast') }}
+                        >
+                          <span className="text-xs font-semibold">
+                            {f ? formatCurrency(f.forecastValue) : "-"}
+                          </span>
+                          {isClickable && (
+                            <Pencil className="h-2.5 w-2.5 absolute top-1 right-1 opacity-0 group-hover:opacity-30" />
                           )}
-                          {showBudget && (
-                            <div className="text-[10px] text-muted-foreground italic">
-                              B: {f ? formatCurrency(f.budgetValue) : "-"}
-                            </div>
-                          )}
-                        </div>
-                        {isClickable && showForecast && (
-                          <Pencil className="h-2.5 w-2.5 absolute top-1 right-1 opacity-0 group-hover:opacity-30" />
-                        )}
-                      </TableCell>
+                        </TableCell>
+                        <TableCell className={cn("text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")} onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Budget') }}>
+                          <span className="text-xs">{f ? formatCurrency(f.budgetValue) : "-"}</span>
+                        </TableCell>
+                        <TableCell className={cn("text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")} onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Last Year') }}>
+                          <span className="text-xs">{f ? formatCurrency(f.lastYearValue) : "-"}</span>
+                        </TableCell>
+                      </Fragment>
                     )
                   })}
-                  <TableCell className="text-right font-bold bg-muted/10 border-l">
-                    {formatCurrency(ytdTotal)}
+                  <TableCell className="text-right font-bold bg-muted/10 border-l" onMouseEnter={() => { setHoveredMonth(0); setHoveredMetric('Forecast') }}>
+                    {formatCurrency(ytdForecast)}
+                  </TableCell>
+                  <TableCell className="text-right font-bold bg-muted/10 text-muted-foreground" onMouseEnter={() => { setHoveredMonth(0); setHoveredMetric('Budget') }}>
+                    {formatCurrency(ytdBudget)}
                   </TableCell>
                 </TableRow>
               )
             })}
 
-            {/* Totals Row */}
+            {/* Grand Total row */}
             <TableRow className="bg-muted/50 font-bold border-t-2">
-              <TableCell className="sticky left-0 bg-muted/80 backdrop-blur-sm z-10 border-r">
+              <TableCell className="border-r">
                 <div className="flex flex-col">
                   <span>Grand Total</span>
                   <span className="text-[10px] font-normal text-muted-foreground uppercase tracking-tight">
@@ -573,35 +592,27 @@ export function ForecastTable({
                 </div>
               </TableCell>
               {months.map(month => {
-                const monthF = forecasts
-                  .filter(f => f.month === month && totalFilter(f))
-                  .reduce((sum, f) => sum + f.forecastValue, 0)
-                const monthB = forecasts
-                  .filter(f => f.month === month && totalFilter(f))
-                  .reduce((sum, f) => sum + f.budgetValue, 0)
-                const monthA = forecasts
-                  .filter(f => f.month === month && totalFilter(f))
-                  .reduce((sum, f) => sum + (f.actualValue || 0), 0)
-
+                const monthF = forecasts.filter(f => f.month === month && totalFilter(f)).reduce((sum, f) => sum + f.forecastValue, 0)
+                const monthB = forecasts.filter(f => f.month === month && totalFilter(f)).reduce((sum, f) => sum + f.budgetValue, 0)
                 return (
-                  <TableCell key={month} className={cn("text-center p-2", month === currentMonth && "bg-primary/5")}>
-                    <div className="flex flex-col gap-1 text-[11px]">
-                      {showActual && <span className="text-primary font-bold text-sm">{formatCurrency(monthA)}</span>}
-                      {showForecast && <span className={cn("text-xs", !showActual && "text-sm")}>{formatCurrency(monthF)}</span>}
-                      {showBudget && <span className="text-muted-foreground text-[10px]">{formatCurrency(monthB)}</span>}
-                    </div>
-                  </TableCell>
+                  <Fragment key={month}>
+                    <TableCell className={cn("text-center p-2 border-l", month === currentMonth && "bg-primary/5")}>
+                      <span className="text-xs">{formatCurrency(monthF)}</span>
+                    </TableCell>
+                    <TableCell className={cn("text-center p-2 text-muted-foreground", month === currentMonth && "bg-primary/5")}>
+                      <span className="text-xs">{formatCurrency(monthB)}</span>
+                    </TableCell>
+                    <TableCell className={cn("text-center p-2 text-muted-foreground", month === currentMonth && "bg-primary/5")}>
+                      <span className="text-xs">{formatCurrency(forecasts.filter(f => f.month === month && totalFilter(f)).reduce((sum, f) => sum + f.lastYearValue, 0))}</span>
+                    </TableCell>
+                  </Fragment>
                 )
               })}
               <TableCell className="text-right bg-muted/20 border-l">
-                {formatCurrency(
-                  forecasts
-                    .filter(f => totalFilter(f))
-                    .reduce((sum, f) => {
-                      if (showActual && f.actualValue) return sum + f.actualValue
-                      return sum + f.forecastValue
-                    }, 0)
-                )}
+                {formatCurrency(forecasts.filter(f => totalFilter(f)).reduce((sum, f) => sum + f.forecastValue, 0))}
+              </TableCell>
+              <TableCell className="text-right bg-muted/20 text-muted-foreground">
+                {formatCurrency(forecasts.filter(f => totalFilter(f)).reduce((sum, f) => sum + f.budgetValue, 0))}
               </TableCell>
             </TableRow>
           </TableBody>

@@ -325,7 +325,9 @@ export default function ForecastPage() {
         }
 
         // HQ and Region Admin keep summary view; branch_user already handled above
-        if (profileData.role === "hq_admin" || profileData.role === "region_admin") {
+        // Skip if a specific branch was requested via URL to avoid a race condition
+        // where the ALL_BRANCHES fetch overwrites the single-branch fetch result.
+        if (!branchFromUrl && (profileData.role === "hq_admin" || profileData.role === "region_admin")) {
           setSelectedBranch(ALL_BRANCHES_ID)
         }
 
@@ -500,13 +502,23 @@ export default function ForecastPage() {
     }
   }, [selectedBranch, selectedRegionId, supabase, currentYear, branches, fetchForecastRowsPaginated])
 
+  const fetchVersionRef = useRef(0)
+
   useEffect(() => {
     if (!selectedBranch) return
     const branchCount = selectedBranch === ALL_BRANCHES_ID ? branches.length : 0
     const key = `${selectedBranch}-${selectedRegionId}-${currentYear}-${branchCount}`
     if (lastFetchedKeyRef.current === key) return
     lastFetchedKeyRef.current = key
-    loadForecasts()
+    // Increment version so stale in-flight fetches are discarded
+    const version = ++fetchVersionRef.current
+    loadForecasts().then(() => {
+      // If another fetch was triggered while this one was in flight, discard these results
+      if (fetchVersionRef.current !== version) {
+        // A newer fetch is in progress; re-trigger with current selectedBranch
+        lastFetchedKeyRef.current = null
+      }
+    })
   }, [selectedBranch, selectedRegionId, currentYear, branches.length, loadForecasts])
 
   // ──────────────────────────────────────────────────────────────

@@ -36,7 +36,7 @@ export default async function BranchesPage({ searchParams }: Props) {
         .from("branches")
         .select("*, regions(name)")
         .eq("region_id", profile.region_id)
-        .order("name")
+        .order("code", { ascending: true })
       branches = data ?? []
     } catch {
       branches = []
@@ -45,7 +45,7 @@ export default async function BranchesPage({ searchParams }: Props) {
     let branchesQuery = supabase
       .from("branches")
       .select("*, regions(name)")
-      .order("name")
+      .order("code", { ascending: true })
     if (profile?.role === "hq_admin" && regionId) {
       branchesQuery = branchesQuery.eq("region_id", regionId)
     }

@@ -71,8 +71,7 @@ async function main() {
       }
       const { error: updateError } = await supabase
         .from("profiles")
-        .update({ role: "hq_admin", full_name: FULL_NAME, region_id: null, branch_id: null })
-        .eq("id", user.id)
+        .upsert({ id: user.id, email: user.email, role: "hq_admin", full_name: FULL_NAME, region_id: null, branch_id: null }, { onConflict: "id" })
       if (updateError) {
         console.error("❌ Failed to update profile:", updateError.message)
         process.exit(1)
@@ -95,8 +94,7 @@ async function main() {
 
   const { error: updateError } = await supabase
     .from("profiles")
-    .update({ role: "hq_admin", full_name: FULL_NAME, region_id: null, branch_id: null })
-    .eq("id", user.id)
+    .upsert({ id: user.id, email: user.email, role: "hq_admin", full_name: FULL_NAME, region_id: null, branch_id: null }, { onConflict: "id" })
 
   if (updateError) {
     console.error("❌ User created but failed to set HQ Admin role:", updateError.message)
