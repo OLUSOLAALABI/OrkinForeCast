@@ -36,7 +36,8 @@ const TEMPLATE_ORDER = [
     "SUBTOTAL/ALTERNATE/SEASONAL",
     "GROSS CONTRACT REVENUE",
     "ALLOWANCES",
-    "PC MGMT FAILURE",
+    "PC COMM MGMT FAILURE",
+    "RESIDENTIAL MGMT FAILURE",
     "YEAR IN ADVANCE",
     "PC SALES DISC",
     "TOTAL ALLOWANCES",
@@ -54,6 +55,7 @@ const TEMPLATE_ORDER = [
     "TERMITE TREATING",
     "PRETREAT",
     "INSPECTION FEES",
+    "TC MGMT FAILURE",
     "TOTAL NET TC REVENUE",
     "TOTAL NET REVENUE",
     "PAYROLL",
@@ -191,7 +193,7 @@ const TEMPLATE_ORDER = [
     "BONUS OPERATING PROFIT",
     "HOME OFFICE OVERHEAD",
     "ACQUISITION COST",
-    "ULTIPRO FEES",
+    "ULTIPRO COST",
     "EXTERNAL PROFIT",
     "FOREIGN EXCHANGE GAIN/LOSS",
     "ROYALTY FEES",
@@ -317,7 +319,7 @@ export function ActualsReportForm({ branchId, year }: { branchId: string, year: 
         const overheadReversal = updated["OVERHEAD ALLOCATION REVERSAL"] || 0
         const homeOffice = updated["HOME OFFICE OVERHEAD"] || 0
         const acquisitionCost = updated["ACQUISITION COST"] || 0
-        const ultiproFees = updated["ULTIPRO FEES"] || 0
+        const ultiproFees = updated["ULTIPRO COST"] || 0
         const foreignExchange = updated["FOREIGN EXCHANGE GAIN/LOSS"] || 0
         const royaltyFees = updated["ROYALTY FEES"] || 0
         const interestExpense = updated["INTEREST EXPENSE ORKIN"] || 0
