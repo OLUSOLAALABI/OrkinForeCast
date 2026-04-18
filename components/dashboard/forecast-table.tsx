@@ -475,7 +475,7 @@ export function ForecastTable({
               {months.map(month => (
                 <TableHead
                   key={month}
-                  colSpan={3}
+                  colSpan={4}
                   className={cn(
                     "text-center font-bold border-l",
                     month === currentMonth && "bg-primary/5"
@@ -492,6 +492,7 @@ export function ForecastTable({
                   <TableHead className={cn("text-center min-w-[120px] font-medium border-l", month === currentMonth && "bg-primary/5")}>Forecast</TableHead>
                   <TableHead className={cn("text-center min-w-[120px] font-medium text-muted-foreground", month === currentMonth && "bg-primary/5")}>Budget</TableHead>
                   <TableHead className={cn("text-center min-w-[120px] font-medium text-muted-foreground", month === currentMonth && "bg-primary/5")}>Last Year</TableHead>
+                  <TableHead className={cn("text-center min-w-[120px] font-medium text-muted-foreground", month === currentMonth && "bg-primary/5")}>Last Month</TableHead>
                 </Fragment>
               ))}
               <TableHead className="text-center min-w-[120px] font-medium bg-muted/50 border-l">Forecast</TableHead>
@@ -546,6 +547,9 @@ export function ForecastTable({
                         <TableCell className={cn("text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")} onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Last Year') }}>
                           <span className="text-xs">{f ? formatCurrency(f.lastYearValue) : "-"}</span>
                         </TableCell>
+                        <TableCell className={cn("text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")} onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Last Month') }}>
+                          <span className="text-xs">-</span>
+                        </TableCell>
                       </Fragment>
                     )
                   })}
@@ -582,6 +586,9 @@ export function ForecastTable({
                     </TableCell>
                     <TableCell className={cn("text-center p-2 text-muted-foreground", month === currentMonth && "bg-primary/5")}>
                       <span className="text-xs">{formatCurrency(forecasts.filter(f => f.month === month && totalFilter(f)).reduce((sum, f) => sum + f.lastYearValue, 0))}</span>
+                    </TableCell>
+                    <TableCell className={cn("text-center p-2 text-muted-foreground", month === currentMonth && "bg-primary/5")}>
+                      <span className="text-xs">-</span>
                     </TableCell>
                   </Fragment>
                 )

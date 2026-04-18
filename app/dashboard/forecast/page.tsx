@@ -711,40 +711,25 @@ export default function ForecastPage() {
       })
       : filteredForecasts
 
-  // Summary stats: use LEAF items only to ensure real-time updates when children are edited
+  // Summary stats: read directly from subtotal rows so cards match the table exactly
   const monthRows = processedForecasts.filter(f => f.month === currentMonth)
-  let revenueForecast = 0
-  let revenueBudget = 0
-  let expenseForecast = 0
-  let expenseBudget = 0
+  const findMonthRow = (desc: string) => monthRows.find(f => normDesc(f.description) === normDesc(desc))
 
-  // Use a restrictive cap for display
-  const DISPLAY_CAP = 1000000000 // 1 Billion
+  const revenueRow = findMonthRow("TOTAL NET REVENUE")
+  const expenseRow = findMonthRow("TOTAL EXPENSES")
+  const contributionRow = findMonthRow("CONTRIBUTION B/4 OVERHEAD")
 
-  monthRows.forEach(f => {
-    const d = normDesc(f.description)
-    const isLeaf = isLeafDescription(d)
-    const val = Math.min(DISPLAY_CAP, f.forecastValue)
+  const revenueForecast = revenueRow?.forecastValue ?? 0
+  const revenueBudget = revenueRow?.budgetValue ?? 0
+  const expenseForecast = expenseRow?.forecastValue ?? 0
+  const expenseBudget = expenseRow?.budgetValue ?? 0
+  const contributionForecast = contributionRow?.forecastValue ?? 0
+  const contributionBudget = contributionRow?.budgetValue ?? 0
 
-    if (isLeaf && !BELOW_THE_LINE.has(d)) {
-      if (isRevenueLine(d)) {
-        revenueForecast += val
-        revenueBudget += f.budgetValue
-      } else {
-        // Expense leaf (excluding below-the-line items like overhead allocations)
-        expenseForecast += val
-        expenseBudget += f.budgetValue
-      }
-    }
-  })
   const revenueVariance = revenueForecast - revenueBudget
   const revenueVariancePct = revenueBudget !== 0 ? (revenueVariance / revenueBudget) * 100 : 0
   const expenseVariance = expenseForecast - expenseBudget
   const expenseVariancePct = expenseBudget !== 0 ? (expenseVariance / expenseBudget) * 100 : 0
-
-  // Derived Contribution B/4 Overhead for summary cards (= Revenue - Expenses before overhead)
-  const contributionForecast = revenueForecast - expenseForecast
-  const contributionBudget = revenueBudget - expenseBudget
   const contributionVariance = contributionForecast - contributionBudget
   const contributionPct = contributionBudget !== 0 ? (contributionVariance / Math.abs(contributionBudget)) * 100 : 0
 
@@ -752,29 +737,24 @@ export default function ForecastPage() {
   const monthsPresent = new Set(processedForecasts.map((f) => f.month))
   const hasFullYearData = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].every((m) => monthsPresent.has(m))
 
-  let annualRevenueForecast = 0
-  let annualRevenueBudget = 0
-  let annualExpenseForecast = 0
-  let annualExpenseBudget = 0
-
-  processedForecasts.forEach((f) => {
-    const d = normDesc(f.description)
-    const isLeaf = isLeafDescription(d)
-    const val = Math.min(DISPLAY_CAP, f.forecastValue)
-    if (isLeaf && !BELOW_THE_LINE.has(d)) {
-      if (isRevenueLine(d)) {
-        annualRevenueForecast += val
-        annualRevenueBudget += f.budgetValue
-      } else {
-        annualExpenseForecast += val
-        annualExpenseBudget += f.budgetValue
-      }
+  const findAnnualTotal = (desc: string) => {
+    const rows = processedForecasts.filter(f => normDesc(f.description) === normDesc(desc))
+    return {
+      forecast: rows.reduce((sum, f) => sum + f.forecastValue, 0),
+      budget: rows.reduce((sum, f) => sum + f.budgetValue, 0),
     }
-  })
+  }
 
-  // Full-year Contribution B/4 Overhead
-  const annualContributionForecast = annualRevenueForecast - annualExpenseForecast
-  const annualContributionBudget = annualRevenueBudget - annualExpenseBudget
+  const annualRevenue = findAnnualTotal("TOTAL NET REVENUE")
+  const annualExpense = findAnnualTotal("TOTAL EXPENSES")
+  const annualContribution = findAnnualTotal("CONTRIBUTION B/4 OVERHEAD")
+
+  const annualRevenueForecast = annualRevenue.forecast
+  const annualRevenueBudget = annualRevenue.budget
+  const annualExpenseForecast = annualExpense.forecast
+  const annualExpenseBudget = annualExpense.budget
+  const annualContributionForecast = annualContribution.forecast
+  const annualContributionBudget = annualContribution.budget
   const annualContributionVariance = annualContributionForecast - annualContributionBudget
 
   const exportToCSV = () => {
@@ -1046,9 +1026,9 @@ export default function ForecastPage() {
                 <CardContent>
                   <div className="text-xl font-bold">Forecast {formatCurrency(annualRevenueForecast)}</div>
                   <p className="text-xs text-muted-foreground">Budget {formatCurrency(annualRevenueBudget)}</p>
-                  <p className={cn("text-xs mt-1 font-medium", annualRevenueForecast >= annualRevenueBudget ? "text-accent" : "text-destructive")}>
+                  {/* <p className={cn("text-xs mt-1 font-medium", annualRevenueForecast >= annualRevenueBudget ? "text-accent" : "text-destructive")}>
                     Variance {annualRevenueForecast >= annualRevenueBudget ? "+" : ""}{formatCurrency(annualRevenueForecast - annualRevenueBudget)}
-                  </p>
+                  </p> */}
                 </CardContent>
               </Card>
               <Card className="border-primary/20 bg-primary/5">
@@ -1060,9 +1040,9 @@ export default function ForecastPage() {
                 <CardContent>
                   <div className="text-xl font-bold">Forecast {formatCurrency(annualExpenseForecast)}</div>
                   <p className="text-xs text-muted-foreground">Budget {formatCurrency(annualExpenseBudget)}</p>
-                  <p className={cn("text-xs mt-1 font-medium", annualExpenseForecast <= annualExpenseBudget ? "text-accent" : "text-destructive")}>
+                  {/* <p className={cn("text-xs mt-1 font-medium", annualExpenseForecast <= annualExpenseBudget ? "text-accent" : "text-destructive")}>
                     Variance {annualExpenseForecast <= annualExpenseBudget ? "" : "+"}{formatCurrency(annualExpenseForecast - annualExpenseBudget)}
-                  </p>
+                  </p> */}
                 </CardContent>
               </Card>
               <Card className="border-accent/20 bg-accent/5">
@@ -1074,9 +1054,9 @@ export default function ForecastPage() {
                 <CardContent>
                   <div className="text-xl font-bold">Forecast {formatCurrency(annualContributionForecast)}</div>
                   <p className="text-xs text-muted-foreground">Budget {formatCurrency(annualContributionBudget)}</p>
-                  <p className={cn("text-xs mt-1 font-medium", annualContributionForecast >= annualContributionBudget ? "text-accent" : "text-destructive")}>
+                  {/* <p className={cn("text-xs mt-1 font-medium", annualContributionForecast >= annualContributionBudget ? "text-accent" : "text-destructive")}>
                     Variance {annualContributionForecast >= annualContributionBudget ? "+" : ""}{formatCurrency(annualContributionVariance)}
-                  </p>
+                  </p> */}
                 </CardContent>
               </Card>
             </div>
