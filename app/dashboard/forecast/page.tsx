@@ -24,6 +24,7 @@ import {
 } from "@/lib/forecasting"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 import { ForecastChart, ForecastBarChart } from "@/components/dashboard/forecast-chart"
 import { ForecastTable } from "@/components/dashboard/forecast-table"
 
@@ -610,7 +611,7 @@ export default function ForecastPage() {
     const oldRow = forecasts.find(f => f.description === description && f.month === month)
     const oldValue = oldRow?.forecastValue ?? 0
 
-    // Log the edit to the audit trail
+    // Log the edit to the audit trail (non-blocking – table may not exist yet)
     if (userId && oldValue !== newValue) {
       supabase
         .from("forecast_audit_log")
@@ -624,7 +625,9 @@ export default function ForecastPage() {
           new_value: newValue,
         })
         .then(({ error: auditErr }) => {
-          if (auditErr) console.error("Error logging forecast edit:", auditErr)
+          if (auditErr && auditErr.code !== "PGRST205") {
+            console.error("Error logging forecast edit:", auditErr)
+          }
         })
     }
 
@@ -643,8 +646,11 @@ export default function ForecastPage() {
     if (updateError) {
       console.error("Error updating forecast:", updateError)
       setError("Failed to update forecast")
+      toast.error("Failed to save forecast update")
       return
     }
+
+    toast.success(`${description} updated for ${getShortMonthName(month)}`)
 
     // 2. Build a working copy with the new value applied
     const updatedForecasts = forecasts.map(f => {

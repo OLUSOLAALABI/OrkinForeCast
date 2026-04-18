@@ -65,3 +65,8 @@ CREATE POLICY "authenticated_insert_audit_log" ON public.forecast_audit_log
   FOR INSERT
   TO authenticated
   WITH CHECK (auth.uid() = user_id);
+
+-- Grant access to PostgREST roles
+GRANT ALL ON public.forecast_audit_log TO authenticated;
+GRANT ALL ON public.forecast_audit_log TO anon;
+NOTIFY pgrst, 'reload schema';
