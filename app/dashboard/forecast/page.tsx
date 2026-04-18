@@ -194,6 +194,7 @@ export default function ForecastPage() {
   // HQ only: when viewing summary, filter by region ("" = all regions, else region_id)
   const [selectedRegionId, setSelectedRegionId] = useState<string>(ALL_REGIONS_ID)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
   const [forecasts, setForecasts] = useState<ForecastResult[]>([])
   const [rawForecastRows, setRawForecastRows] = useState<{ branch_id: string; description: string; month: number; forecast_value: number; budget_value: number }[]>([])
   const [loading, setLoading] = useState(true)
@@ -303,6 +304,7 @@ export default function ForecastPage() {
     const fetchData = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+      setUserId(user.id)
 
       const { data: profileData } = await supabase
         .from("profiles")
@@ -603,6 +605,28 @@ export default function ForecastPage() {
 
   const handleUpdateForecast = async (description: string, month: number, newValue: number) => {
     if (!selectedBranch || selectedBranch === ALL_BRANCHES_ID) return
+
+    // Find the old value for audit logging
+    const oldRow = forecasts.find(f => f.description === description && f.month === month)
+    const oldValue = oldRow?.forecastValue ?? 0
+
+    // Log the edit to the audit trail
+    if (userId && oldValue !== newValue) {
+      supabase
+        .from("forecast_audit_log")
+        .insert({
+          user_id: userId,
+          branch_id: selectedBranch,
+          description,
+          year: currentYear,
+          month,
+          old_value: oldValue,
+          new_value: newValue,
+        })
+        .then(({ error: auditErr }) => {
+          if (auditErr) console.error("Error logging forecast edit:", auditErr)
+        })
+    }
 
     // 1. Update the edited row in the database
     const { error: updateError } = await supabase
