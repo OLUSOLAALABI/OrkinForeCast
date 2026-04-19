@@ -742,63 +742,41 @@ export default function ForecastPage() {
   const CANADIAN_TAXES = "CANADIAN TAXES"
   const NON_OP_INT = "NON-OP INT EXP/(REV)"
 
-  /**
-   * Recalculate derived P&L subtotal rows for a given month.
-   * Returns a map of description → new forecast value for the derived rows.
-   */
-  function recalcDerivedRows(allForecasts: ForecastResult[], targetMonth: number): Map<string, number> {
-    // Recalculate basic totals from leaf items for this month
-    const leafRows = allForecasts.filter(f => f.month === targetMonth && isLeafDescription(f.description))
-
-    let totalRevenue = 0
-    let totalExpenses = 0
-    let totalOverhead = 0
-
-    leafRows.forEach(r => {
-      const d = normDesc(r.description)
-      if (isRevenueLine(d)) {
-        totalRevenue += r.forecastValue
-      } else if (d.includes("ALLOCATIONS")) {
-        totalOverhead += r.forecastValue
-      } else {
-        // Expense leaf (excluding overhead)
-        totalExpenses += r.forecastValue
-      }
-    })
-
-    const get = (desc: string) => {
-      const row = allForecasts.find(f => normDesc(f.description) === normDesc(desc) && f.month === targetMonth)
-      return row ? row.forecastValue : 0
-    }
-
-    const overheadReversal = get(OVERHEAD_ALLOCATION_REVERSAL)
-    const homeOffice = get(HOME_OFFICE_OVERHEAD)
-    const acquisitionCost = get(ACQUISITION_COST)
-    const ultiproFees = get(ULTIPRO_FEES)
-    const foreignExchange = get(FOREIGN_EXCHANGE)
-    const royaltyFees = get(ROYALTY_FEES)
-    const interestExpense = get(INTEREST_EXPENSE)
-    const canadianTaxes = get(CANADIAN_TAXES)
-    const nonOpInt = get(NON_OP_INT)
-
-    // Core P&L formulas
-    const contribution = totalRevenue - totalExpenses
-    const operatingProfit = contribution - totalOverhead
-    const bonusOperatingProfit = operatingProfit - overheadReversal
-    const externalProfit = bonusOperatingProfit - homeOffice - acquisitionCost - ultiproFees
-    const netProfit = externalProfit - foreignExchange - royaltyFees - interestExpense - canadianTaxes - nonOpInt
-
-    const derivedMap = new Map<string, number>()
-    derivedMap.set(normDesc(TOTAL_NET_REVENUE), Math.round(totalRevenue * 100) / 100)
-    derivedMap.set(normDesc(TOTAL_EXPENSES), Math.round(totalExpenses * 100) / 100)
-    derivedMap.set(normDesc(TOTAL_OVERHEAD_ALLOCATIONS), Math.round(totalOverhead * 100) / 100)
-    derivedMap.set(normDesc(DERIVED_ROW_CONTRIBUTION), Math.round(contribution * 100) / 100)
-    derivedMap.set(normDesc(DERIVED_ROW_OPERATING_PROFIT), Math.round(operatingProfit * 100) / 100)
-    derivedMap.set(normDesc(DERIVED_ROW_BONUS_OPERATING_PROFIT), Math.round(bonusOperatingProfit * 100) / 100)
-    derivedMap.set(normDesc(DERIVED_ROW_EXTERNAL_PROFIT), Math.round(externalProfit * 100) / 100)
-    derivedMap.set(normDesc(DERIVED_ROW_NET_PROFIT), Math.round(netProfit * 100) / 100)
-    return derivedMap
-  }
+  // ── DEPRECATED: recalcDerivedRows ──────────────────────────────────────────
+  // Previously used after edits to recalculate only 8 top-level P&L rows.
+  // Replaced by recomputeAllSubtotals() which handles all 43 subtotal rules
+  // (intermediate subtotals like SUBTOTAL MONTHLY, GROSS CONTRACT REVENUE, etc.)
+  // Kept commented for reference.
+  //
+  // function recalcDerivedRows(allForecasts: ForecastResult[], targetMonth: number): Map<string, number> {
+  //   const leafRows = allForecasts.filter(f => f.month === targetMonth && isLeafDescription(f.description))
+  //   let totalRevenue = 0, totalExpenses = 0, totalOverhead = 0
+  //   leafRows.forEach(r => {
+  //     const d = normDesc(r.description)
+  //     if (isRevenueLine(d)) totalRevenue += r.forecastValue
+  //     else if (d.includes("ALLOCATIONS")) totalOverhead += r.forecastValue
+  //     else totalExpenses += r.forecastValue
+  //   })
+  //   const get = (desc: string) => {
+  //     const row = allForecasts.find(f => normDesc(f.description) === normDesc(desc) && f.month === targetMonth)
+  //     return row ? row.forecastValue : 0
+  //   }
+  //   const contribution = totalRevenue - totalExpenses
+  //   const operatingProfit = contribution - totalOverhead
+  //   const bonusOperatingProfit = operatingProfit - get(OVERHEAD_ALLOCATION_REVERSAL)
+  //   const externalProfit = bonusOperatingProfit - get(HOME_OFFICE_OVERHEAD) - get(ACQUISITION_COST) - get(ULTIPRO_FEES)
+  //   const netProfit = externalProfit - get(FOREIGN_EXCHANGE) - get(ROYALTY_FEES) - get(INTEREST_EXPENSE) - get(CANADIAN_TAXES) - get(NON_OP_INT)
+  //   const derivedMap = new Map<string, number>()
+  //   derivedMap.set(normDesc(TOTAL_NET_REVENUE), Math.round(totalRevenue * 100) / 100)
+  //   derivedMap.set(normDesc(TOTAL_EXPENSES), Math.round(totalExpenses * 100) / 100)
+  //   derivedMap.set(normDesc(TOTAL_OVERHEAD_ALLOCATIONS), Math.round(totalOverhead * 100) / 100)
+  //   derivedMap.set(normDesc(DERIVED_ROW_CONTRIBUTION), Math.round(contribution * 100) / 100)
+  //   derivedMap.set(normDesc(DERIVED_ROW_OPERATING_PROFIT), Math.round(operatingProfit * 100) / 100)
+  //   derivedMap.set(normDesc(DERIVED_ROW_BONUS_OPERATING_PROFIT), Math.round(bonusOperatingProfit * 100) / 100)
+  //   derivedMap.set(normDesc(DERIVED_ROW_EXTERNAL_PROFIT), Math.round(externalProfit * 100) / 100)
+  //   derivedMap.set(normDesc(DERIVED_ROW_NET_PROFIT), Math.round(netProfit * 100) / 100)
+  //   return derivedMap
+  // }
 
   const handleUpdateForecast = async (description: string, month: number, newValue: number) => {
     if (!selectedBranch || selectedBranch === ALL_BRANCHES_ID) return
@@ -856,46 +834,28 @@ export default function ForecastPage() {
       return f
     })
 
-    // 3. Recalculate derived P&L rows for the affected month
-    const derivedMap = recalcDerivedRows(updatedForecasts, month)
+    // 3. Recompute ALL subtotals (intermediate + top-level) using the full hierarchy rules
+    const finalForecasts = recomputeAllSubtotals(updatedForecasts)
 
-    // 4. Apply derived values to local state + persist to database
+    // 4. Diff against old state to find which subtotal rows changed for DB persistence
     const dbUpdates: { description: string; value: number }[] = []
-    const finalForecasts = updatedForecasts.map(f => {
-      if (f.month !== month) return f
-
-      // Was this the directly-edited row?
-      const isEditedRow = f.description === description
-
-      // Is this a derived subtotal row?
+    const oldByKey = new Map<string, number>()
+    forecasts.forEach(f => {
+      if (f.month === month) oldByKey.set(normDesc(f.description), f.forecastValue)
+    })
+    finalForecasts.forEach(f => {
+      if (f.month !== month) return
       const nd = normDesc(f.description)
-      const derivedValue = derivedMap.get(nd)
-      const isDerived = derivedValue !== undefined
-
-      let newForecastValue = f.forecastValue
-      if (isEditedRow) {
-        newForecastValue = newValue
-      } else if (isDerived) {
-        newForecastValue = derivedValue
-        dbUpdates.push({ description: f.description, value: derivedValue })
-      }
-
-      const newVariance = newForecastValue - f.budgetValue
-      const newVariancePercent = f.budgetValue !== 0
-        ? ((newForecastValue - f.budgetValue) / f.budgetValue) * 100
-        : 0
-
-      return {
-        ...f,
-        forecastValue: newForecastValue,
-        variance: newVariance,
-        variancePercent: newVariancePercent
+      const oldVal = oldByKey.get(nd)
+      // Persist any row whose forecast value changed (subtotals + the edited leaf)
+      if (oldVal !== undefined && Math.abs(f.forecastValue - oldVal) > 0.001 && nd !== normDesc(description)) {
+        dbUpdates.push({ description: f.description, value: f.forecastValue })
       }
     })
 
     setForecasts(finalForecasts)
 
-    // 5. Persist derived row updates to database (fire-and-forget)
+    // 5. Persist subtotal updates to database (fire-and-forget)
     if (dbUpdates.length > 0) {
       const now = new Date().toISOString()
       Promise.all(
@@ -908,7 +868,7 @@ export default function ForecastPage() {
             .eq("year", currentYear)
             .eq("month", month)
         )
-      ).catch(err => console.error("Error saving derived rows:", err))
+      ).catch(err => console.error("Error saving subtotal rows:", err))
     }
   }
 
