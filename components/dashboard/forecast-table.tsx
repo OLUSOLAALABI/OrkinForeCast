@@ -444,7 +444,7 @@ export function ForecastTable({
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <Checkbox checked={showLastMonth} onCheckedChange={(v) => setShowLastMonth(!!v)} />
-                <span className="text-sm text-muted-foreground">Last Month</span>
+                <span className="text-sm text-muted-foreground">Actuals</span>
               </label>
             </div>
           </div>
@@ -503,7 +503,7 @@ export function ForecastTable({
                   {showForecast && <TableHead className={cn("text-center min-w-[120px] font-medium border-l", month === currentMonth && "bg-primary/5")}>Forecast</TableHead>}
                   {showBudget && <TableHead className={cn("text-center min-w-[120px] font-medium text-muted-foreground", month === currentMonth && "bg-primary/5")}>Budget</TableHead>}
                   {showLastYear && <TableHead className={cn("text-center min-w-[120px] font-medium text-muted-foreground", month === currentMonth && "bg-primary/5")}>Last Year</TableHead>}
-                  {showLastMonth && <TableHead className={cn("text-center min-w-[120px] font-medium text-muted-foreground", month === currentMonth && "bg-primary/5")}>Last Month</TableHead>}
+                  {showLastMonth && <TableHead className={cn("text-center min-w-[120px] font-medium text-muted-foreground", month === currentMonth && "bg-primary/5")}>Actuals</TableHead>}
                 </Fragment>
               ))}
               {showForecast && <TableHead className="text-center min-w-[120px] font-medium bg-muted/50 border-l">Forecast</TableHead>}
@@ -558,7 +558,7 @@ export function ForecastTable({
                         {showLastYear && <TableCell className={cn("text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")} onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Last Year') }}>
                           <span className="text-xs">{f ? formatCurrency(f.lastYearValue) : "-"}</span>
                         </TableCell>}
-                        {showLastMonth && <TableCell className={cn("text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")} onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Last Month') }}>
+                        {showLastMonth && <TableCell className={cn("text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")} onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Actuals') }}>
                           <span className="text-xs">{(() => {
                             const key = `${description}\t${month}`
                             const val = lastMonthActuals?.get(key)

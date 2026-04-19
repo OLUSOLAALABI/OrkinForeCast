@@ -1505,7 +1505,7 @@ export default function ForecastPage() {
                     forecasts={filteredForecasts}
                     currentMonth={currentMonth}
                     onUpdateForecast={handleUpdateForecast}
-                    editable={profile?.role !== "branch_user" && selectedBranch !== ALL_BRANCHES_ID}
+                    editable={selectedBranch !== ALL_BRANCHES_ID}
                     lastMonthActuals={lastMonthActuals}
                   />
                 </TabsContent>
