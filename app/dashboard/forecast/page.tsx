@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { LineChart, Download, TrendingUp, TrendingDown, Loader2, AlertCircle, Pencil, Search } from "lucide-react"
+import { LineChart, Download, Upload, TrendingUp, TrendingDown, Loader2, AlertCircle, Pencil, Search } from "lucide-react"
 import {
   formatCurrency,
   formatPercent,
@@ -25,6 +25,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import * as XLSX from "xlsx"
 import { ForecastChart, ForecastBarChart } from "@/components/dashboard/forecast-chart"
 import { ForecastTable } from "@/components/dashboard/forecast-table"
 
@@ -211,6 +212,10 @@ export default function ForecastPage() {
   })
   const supabase = createClient()
   const lastFetchedKeyRef = useRef<string | null>(null)
+  const [lastMonthActuals, setLastMonthActuals] = useState<Map<string, number>>(new Map())
+  const [uploading, setUploading] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const regionsList = useMemo(() => {
     const m = new Map<string, { id: string; name: string }>()
@@ -523,6 +528,197 @@ export default function ForecastPage() {
       }
     })
   }, [selectedBranch, selectedRegionId, currentYear, branches.length, loadForecasts])
+
+  // ── Fetch last month actuals from the last_month_actuals table ──
+  const fetchLastMonthActuals = useCallback(async () => {
+    if (!selectedBranch || !profile) return
+
+    try {
+      let query = supabase
+        .from("last_month_actuals")
+        .select("description, month, value")
+        .eq("year", currentYear)
+
+      if (selectedBranch === ALL_BRANCHES_ID) {
+        if (profile.role === "hq_admin") {
+          if (selectedRegionId && selectedRegionId !== ALL_REGIONS_ID) {
+            query = query.eq("region_id", selectedRegionId)
+          } else {
+            query = query.eq("is_company_wide", true)
+          }
+        } else if (profile.role === "region_admin" && profile.region_id) {
+          query = query.eq("region_id", profile.region_id)
+        }
+      } else {
+        query = query.eq("branch_id", selectedBranch)
+      }
+
+      const { data, error: fetchErr } = await query
+      if (fetchErr) {
+        // Table may not exist yet — silently ignore
+        if (fetchErr.code !== "PGRST204" && fetchErr.code !== "PGRST205") {
+          console.error("Error fetching last month actuals:", fetchErr)
+        }
+        return
+      }
+
+      const map = new Map<string, number>()
+      for (const row of data ?? []) {
+        map.set(`${row.description}\t${row.month}`, Number(row.value))
+      }
+      setLastMonthActuals(map)
+    } catch (err) {
+      console.error("Error fetching last month actuals:", err)
+    }
+  }, [selectedBranch, selectedRegionId, profile, currentYear, supabase])
+
+  useEffect(() => {
+    fetchLastMonthActuals()
+  }, [fetchLastMonthActuals])
+
+  // ── File selection handler ──
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ""
+    setSelectedFile(file)
+  }
+
+  // ── Upload actuals handler (client-side Excel parsing) ──
+  const handleUploadActuals = async () => {
+    const file = selectedFile
+    if (!file) return
+
+    setUploading(true)
+    try {
+      // 1. Parse Excel in the browser
+      const arrayBuffer = await file.arrayBuffer()
+      const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: "array" })
+
+      // Constants matching the Excel P&L layout
+      const DESC_COL_T = 19, MONTH_START = 20, MONTH_END = 31, HDR_ROW = 8
+      const SKIP_DESCS = new Set(["line of bus", "district", "gl", "period", "orkin canada", "spare row", "spare", "actual", "*", ""])
+      const SKIP_PREFIXES = ["toc", "travel", "mktg dept"]
+      const SKIP_SUFFIXES = [" oh", " cc", " qa", " sales"]
+      const SKIP_EXACT = new Set(["024 atlas e", "028 atlas w", "functionals", "ntl accts (total)", "ttl qa"])
+      const SKIP_TTL = new Set(["ttl pac_gvr", "ttl island", "ttl barrie", "ttl edm", "ttl sask & reg", "ttl gta res", "ttl nfld"])
+
+      const toNum = (v: unknown): number | null => {
+        if (v === undefined || v === null || v === "") return null
+        if (typeof v === "number" && !Number.isNaN(v)) return v
+        const n = parseFloat(String(v).replace(/,/g, ""))
+        return Number.isNaN(n) ? null : n
+      }
+
+      const shouldSkip = (t: string) => {
+        if (SKIP_EXACT.has(t) || SKIP_TTL.has(t)) return true
+        if (SKIP_PREFIXES.some(p => t.startsWith(p))) return true
+        if (SKIP_SUFFIXES.some(s => t.endsWith(s))) return true
+        if (/^\d{3}\s/.test(t)) {
+          const num = parseInt(t, 10)
+          if ((num >= 400 && num < 500) || (num >= 600 && num < 700) || (num >= 800 && num < 1000)) return true
+        }
+        return false
+      }
+
+      // 2. Build master description map from ORKIN CANADA column T (single source of truth)
+      const masterDescByRow = new Map<number, string>()
+      const canadaSheet = workbook.Sheets["ORKIN CANADA"]
+      if (!canadaSheet) {
+        toast.error("Excel file is missing the ORKIN CANADA sheet")
+        return
+      }
+      const canadaRows = XLSX.utils.sheet_to_json(canadaSheet, { header: 1, defval: "" }) as unknown[][]
+      for (let i = HDR_ROW + 1; i < canadaRows.length; i++) {
+        const desc = String(canadaRows[i]?.[DESC_COL_T] ?? "").trim()
+        if (desc && !SKIP_DESCS.has(desc.toLowerCase()) && !/^\d+$/.test(desc)) {
+          masterDescByRow.set(i, desc)
+        }
+      }
+
+      // 3. Detect year and last month with data
+      let detectedYear: number | null = null
+      let lastMonth = 0
+
+      for (let r = 0; r < Math.min(canadaRows.length, 10); r++) {
+        for (let c = 0; c < (canadaRows[r]?.length || 0); c++) {
+          const m = String(canadaRows[r][c] || "").match(/\b(202[0-9])\b/)
+          if (m) { detectedYear = parseInt(m[1], 10); break }
+        }
+        if (detectedYear) break
+      }
+
+      for (let i = HDR_ROW + 1; i < canadaRows.length; i++) {
+        if (!masterDescByRow.has(i)) continue
+        for (let m = MONTH_END; m >= MONTH_START; m--) {
+          const val = toNum(canadaRows[i][m])
+          if (val !== null && val !== 0) {
+            const mo = m - MONTH_START + 1
+            if (mo > lastMonth) lastMonth = mo
+            break
+          }
+        }
+      }
+
+      if (!detectedYear || lastMonth === 0) {
+        toast.error("Could not detect year or month from the Excel file")
+        return
+      }
+
+      const months = Array.from({ length: lastMonth }, (_, i) => i + 1)
+
+      // 4. Extract data from each relevant sheet using master descriptions
+      const sheets: Array<{ tabName: string; rows: Array<{ description: string; month: number; value: number }> }> = []
+
+      for (const name of workbook.SheetNames) {
+        const low = name.trim().toLowerCase()
+        if (shouldSkip(low)) continue
+
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: "" }) as unknown[][]
+        const extracted: Array<{ description: string; month: number; value: number }> = []
+
+        for (const [rowIdx, desc] of masterDescByRow) {
+          const row = rows[rowIdx] || []
+          for (const mo of months) {
+            const colIdx = MONTH_START + mo - 1
+            extracted.push({ description: desc, month: mo, value: toNum(row[colIdx]) ?? 0 })
+          }
+        }
+
+        if (extracted.length > 0) {
+          sheets.push({ tabName: name, rows: extracted })
+        }
+      }
+
+      // 5. Send parsed data to API
+      const res = await fetch("/api/upload-actuals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year: detectedYear, months, sheets }),
+      })
+
+      const result = await res.json()
+
+      if (!res.ok) {
+        toast.error(result.error || "Upload failed")
+        return
+      }
+
+      toast.success(
+        `Actuals uploaded — ${result.branchesMatched} branches, ${result.regionsMatched} regions, ${result.monthRange} ${result.year}`
+      )
+
+      setSelectedFile(null)
+
+      // Refresh the actuals data
+      await fetchLastMonthActuals()
+    } catch (err) {
+      console.error("Upload error:", err)
+      toast.error("Failed to process actuals file")
+    } finally {
+      setUploading(false)
+    }
+  }
 
   // ──────────────────────────────────────────────────────────────
   // P&L recalculation constants
@@ -936,6 +1132,34 @@ export default function ForecastPage() {
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
+          {profile?.role === "hq_admin" && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xlsm"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                {selectedFile ? selectedFile.name : "Select Actuals File"}
+              </Button>
+              {selectedFile && (
+                <Button
+                  onClick={handleUploadActuals}
+                  disabled={uploading}
+                >
+                  {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                  {uploading ? "Uploading…" : "Upload"}
+                </Button>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -1322,6 +1546,7 @@ export default function ForecastPage() {
                     currentMonth={currentMonth}
                     onUpdateForecast={handleUpdateForecast}
                     editable={profile?.role !== "branch_user" && selectedBranch !== ALL_BRANCHES_ID}
+                    lastMonthActuals={lastMonthActuals}
                   />
                 </TabsContent>
               </Tabs>

@@ -251,6 +251,7 @@ type ForecastTableProps = {
   currentMonth: number
   onUpdateForecast?: (description: string, month: number, newValue: number) => Promise<void>
   editable?: boolean
+  lastMonthActuals?: Map<string, number>
 }
 
 type EditingCell = {
@@ -263,7 +264,8 @@ export function ForecastTable({
   forecasts,
   currentMonth,
   onUpdateForecast,
-  editable = true
+  editable = true,
+  lastMonthActuals,
 }: ForecastTableProps) {
   const [editingCell, setEditingCell] = useState<EditingCell>(null)
   const [editValue, setEditValue] = useState<string>("")
@@ -551,7 +553,11 @@ export function ForecastTable({
                           <span className="text-xs">{f ? formatCurrency(f.lastYearValue) : "-"}</span>
                         </TableCell>
                         <TableCell className={cn("text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")} onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Last Month') }}>
-                          <span className="text-xs">-</span>
+                          <span className="text-xs">{(() => {
+                            const key = `${description}\t${month}`
+                            const val = lastMonthActuals?.get(key)
+                            return val !== undefined ? formatCurrency(val) : "-"
+                          })()}</span>
                         </TableCell>
                       </Fragment>
                     )
