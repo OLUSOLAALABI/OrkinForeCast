@@ -48,13 +48,15 @@ export function BranchesList({
   const filteredBranches = useMemo(() => {
     if (!branches) return []
     const q = search.trim().toLowerCase()
-    if (!q) return branches
-    return branches.filter(
-      (b) =>
-        b.name.toLowerCase().includes(q) ||
-        b.code.toLowerCase().includes(q) ||
-        (b.regions?.name ?? "").toLowerCase().includes(q)
-    )
+    const results = !q
+      ? branches
+      : branches.filter(
+          (b) =>
+            b.name.toLowerCase().includes(q) ||
+            b.code.toLowerCase().includes(q) ||
+            (b.regions?.name ?? "").toLowerCase().includes(q)
+        )
+    return [...results].sort((a, b) => parseInt(a.code, 10) - parseInt(b.code, 10))
   }, [branches, search])
 
   const handleRegionChange = (value: string) => {

@@ -39,3 +39,4 @@ venv/
 
 # optional: uncomment to avoid committing Excel data (large binaries)
 # /branchData/
+nul

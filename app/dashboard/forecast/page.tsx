@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { LineChart, Download, TrendingUp, TrendingDown, Loader2, AlertCircle, Pencil, Search } from "lucide-react"
+import { LineChart, Download, Upload, TrendingUp, TrendingDown, Loader2, AlertCircle, Pencil, Search } from "lucide-react"
 import {
   formatCurrency,
   formatPercent,
@@ -24,6 +24,8 @@ import {
 } from "@/lib/forecasting"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
+import * as XLSX from "xlsx"
 import { ForecastChart, ForecastBarChart } from "@/components/dashboard/forecast-chart"
 import { ForecastTable } from "@/components/dashboard/forecast-table"
 
@@ -63,13 +65,13 @@ const BUDGET_ONLY_LINES = new Set([
   "OVERHEAD ALLOCATION REVERSAL",
   "HOME OFFICE OVERHEAD",
   "ACQUISITION COST",
-  "ULTIPRO FEES",
+  "ULTIPRO COST",
 ].map(normDesc))
 
 // Below-the-line descriptions that should NOT count as "Total Expenses" for Contribution B/4 Overhead
 const BELOW_THE_LINE = new Set([
   ...BUDGET_ONLY_LINES,
-  ..."OVERHEAD ALLOCATIONS,TOTAL OVERHEAD ALLOCATIONS,OPERATING PROFIT,OVERHEAD ALLOCATION REVERSAL,BONUS OPERATING PROFIT,HOME OFFICE OVERHEAD,ACQUISITION COST,ULTIPRO FEES,EXTERNAL PROFIT,FOREIGN EXCHANGE GAIN/LOSS,ROYALTY FEES,INTEREST EXPENSE ORKIN,CANADIAN TAXES,NON-OP INT EXP/(REV),NET PROFIT,CONTRIBUTION B/4 OVERHEAD".split(",").map(s => normDesc(s)),
+  ..."OVERHEAD ALLOCATIONS,TOTAL OVERHEAD ALLOCATIONS,OPERATING PROFIT,OVERHEAD ALLOCATION REVERSAL,BONUS OPERATING PROFIT,HOME OFFICE OVERHEAD,ACQUISITION COST,ULTIPRO COST,EXTERNAL PROFIT,FOREIGN EXCHANGE GAIN/LOSS,ROYALTY FEES,INTEREST EXPENSE ORKIN,CANADIAN TAXES,NON-OP INT EXP/(REV),NET PROFIT,CONTRIBUTION B/4 OVERHEAD".split(",").map(s => normDesc(s)),
 ])
 
 // ────────────────────────────────────────────────────────────────
@@ -82,11 +84,11 @@ const SUBTOTAL_RULES: SubtotalRule[] = [
   { desc: "SUBTOTAL MONTHLY", add: ["PEST CONTROL REVENUE", "COMMERCIAL REVENUE", "COMMERCIAL BED BUG REVENUE (recur)", "FLY CONTROL", "ORKIN/AIRE", "FEMININE HYGIENE", "DRAIN MAINTENANCE", "SOAK TANK"] },
   { desc: "SUBTOTAL/ALTERNATE/SEASONAL", add: ["RESIDENTIAL CONTRACT", "VALU PLUS COMM REVENUE", "SEASONAL REV  & OTHER"] },
   { desc: "GROSS CONTRACT REVENUE", add: ["SUBTOTAL MONTHLY", "SUBTOTAL/ALTERNATE/SEASONAL"] },
-  { desc: "TOTAL ALLOWANCES", add: ["ALLOWANCES", "PC MGMT FAILURE", "YEAR IN ADVANCE", "PC SALES DISC"] },
+  { desc: "TOTAL ALLOWANCES", add: ["ALLOWANCES", "PC COMM MGMT FAILURE", "RESIDENTIAL MGMT FAILURE", "YEAR IN ADVANCE", "PC SALES DISC"] },
   { desc: "NET CONTRACT REVENUE", add: ["GROSS CONTRACT REVENUE", "TOTAL ALLOWANCES"] },
   { desc: "TOTAL MISC REVENUE", add: ["MISCELLANEOUS REVENUE", "RESIDENTIAL BED BUG REVENUE", "COMMERCIAL BED BUG REVENUE", "RESIDENTIAL SPECIAL SERVICES", "COMMERCIAL SPECIAL SERVICES", "PRODUCT SALES", "FUMIGATION PC"] },
   { desc: "TOTAL NET PC REVENUE", add: ["NET CONTRACT REVENUE", "TOTAL MISC REVENUE"] },
-  { desc: "TOTAL NET TC REVENUE", add: ["TERMITE (TC) REVENUE", "TERMITE TREATING", "PRETREAT", "INSPECTION FEES"] },
+  { desc: "TOTAL NET TC REVENUE", add: ["TERMITE (TC) REVENUE", "TERMITE TREATING", "PRETREAT", "INSPECTION FEES", "TC MGMT FAILURE"] },
   { desc: "TOTAL NET REVENUE", add: ["TOTAL NET PC REVENUE", "TOTAL NET TC REVENUE"] },
   // Payroll
   { desc: "SUBTOTALS MANAGERS", add: ["DIVISION MANAGER", "REGION MANAGER SALARY", "BRANCH MANAGER SALARY", "QUALITY ASSURANCE", "MANAGER TRAINEE"] },
@@ -129,7 +131,7 @@ const SUBTOTAL_RULES: SubtotalRule[] = [
   // Bottom line
   { desc: "OPERATING PROFIT", add: ["CONTRIBUTION B/4 OVERHEAD"], sub: ["TOTAL OVERHEAD ALLOCATIONS"] },
   { desc: "BONUS OPERATING PROFIT", add: ["OPERATING PROFIT"], sub: ["OVERHEAD ALLOCATION REVERSAL"] },
-  { desc: "EXTERNAL PROFIT", add: ["BONUS OPERATING PROFIT"], sub: ["HOME OFFICE OVERHEAD", "ACQUISITION COST", "ULTIPRO FEES"] },
+  { desc: "EXTERNAL PROFIT", add: ["BONUS OPERATING PROFIT"], sub: ["HOME OFFICE OVERHEAD", "ACQUISITION COST", "ULTIPRO COST"] },
   { desc: "NET PROFIT", add: ["EXTERNAL PROFIT"], sub: ["FOREIGN EXCHANGE GAIN/LOSS", "ROYALTY FEES", "INTEREST EXPENSE ORKIN", "CANADIAN TAXES", "NON-OP INT EXP/(REV)"] },
 ]
 
@@ -194,6 +196,7 @@ export default function ForecastPage() {
   // HQ only: when viewing summary, filter by region ("" = all regions, else region_id)
   const [selectedRegionId, setSelectedRegionId] = useState<string>(ALL_REGIONS_ID)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
   const [forecasts, setForecasts] = useState<ForecastResult[]>([])
   const [rawForecastRows, setRawForecastRows] = useState<{ branch_id: string; description: string; month: number; forecast_value: number; budget_value: number }[]>([])
   const [loading, setLoading] = useState(true)
@@ -209,6 +212,10 @@ export default function ForecastPage() {
   })
   const supabase = createClient()
   const lastFetchedKeyRef = useRef<string | null>(null)
+  const [lastMonthActuals, setLastMonthActuals] = useState<Map<string, number>>(new Map())
+  const [uploading, setUploading] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const regionsList = useMemo(() => {
     const m = new Map<string, { id: string; name: string }>()
@@ -303,6 +310,7 @@ export default function ForecastPage() {
     const fetchData = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+      setUserId(user.id)
 
       const { data: profileData } = await supabase
         .from("profiles")
@@ -325,7 +333,9 @@ export default function ForecastPage() {
         }
 
         // HQ and Region Admin keep summary view; branch_user already handled above
-        if (profileData.role === "hq_admin" || profileData.role === "region_admin") {
+        // Skip if a specific branch was requested via URL to avoid a race condition
+        // where the ALL_BRANCHES fetch overwrites the single-branch fetch result.
+        if (!branchFromUrl && (profileData.role === "hq_admin" || profileData.role === "region_admin")) {
           setSelectedBranch(ALL_BRANCHES_ID)
         }
 
@@ -500,14 +510,215 @@ export default function ForecastPage() {
     }
   }, [selectedBranch, selectedRegionId, supabase, currentYear, branches, fetchForecastRowsPaginated])
 
+  const fetchVersionRef = useRef(0)
+
   useEffect(() => {
     if (!selectedBranch) return
     const branchCount = selectedBranch === ALL_BRANCHES_ID ? branches.length : 0
     const key = `${selectedBranch}-${selectedRegionId}-${currentYear}-${branchCount}`
     if (lastFetchedKeyRef.current === key) return
     lastFetchedKeyRef.current = key
-    loadForecasts()
+    // Increment version so stale in-flight fetches are discarded
+    const version = ++fetchVersionRef.current
+    loadForecasts().then(() => {
+      // If another fetch was triggered while this one was in flight, discard these results
+      if (fetchVersionRef.current !== version) {
+        // A newer fetch is in progress; re-trigger with current selectedBranch
+        lastFetchedKeyRef.current = null
+      }
+    })
   }, [selectedBranch, selectedRegionId, currentYear, branches.length, loadForecasts])
+
+  // ── Fetch last month actuals from the last_month_actuals table ──
+  const fetchLastMonthActuals = useCallback(async () => {
+    if (!selectedBranch || !profile) return
+
+    try {
+      let query = supabase
+        .from("last_month_actuals")
+        .select("description, month, value")
+        .eq("year", currentYear)
+
+      if (selectedBranch === ALL_BRANCHES_ID) {
+        if (profile.role === "hq_admin") {
+          if (selectedRegionId && selectedRegionId !== ALL_REGIONS_ID) {
+            query = query.eq("region_id", selectedRegionId)
+          } else {
+            query = query.eq("is_company_wide", true)
+          }
+        } else if (profile.role === "region_admin" && profile.region_id) {
+          query = query.eq("region_id", profile.region_id)
+        }
+      } else {
+        query = query.eq("branch_id", selectedBranch)
+      }
+
+      const { data, error: fetchErr } = await query
+      if (fetchErr) {
+        // Table may not exist yet — silently ignore
+        if (fetchErr.code !== "PGRST204" && fetchErr.code !== "PGRST205") {
+          console.error("Error fetching last month actuals:", fetchErr)
+        }
+        return
+      }
+
+      const map = new Map<string, number>()
+      for (const row of data ?? []) {
+        map.set(`${row.description}\t${row.month}`, Number(row.value))
+      }
+      setLastMonthActuals(map)
+    } catch (err) {
+      console.error("Error fetching last month actuals:", err)
+    }
+  }, [selectedBranch, selectedRegionId, profile, currentYear, supabase])
+
+  useEffect(() => {
+    fetchLastMonthActuals()
+  }, [fetchLastMonthActuals])
+
+  // ── File selection handler ──
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ""
+    setSelectedFile(file)
+  }
+
+  // ── Upload actuals handler (client-side Excel parsing) ──
+  const handleUploadActuals = async () => {
+    const file = selectedFile
+    if (!file) return
+
+    setUploading(true)
+    try {
+      // 1. Parse Excel in the browser
+      const arrayBuffer = await file.arrayBuffer()
+      const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: "array" })
+
+      // Constants matching the Excel P&L layout
+      const DESC_COL_T = 19, MONTH_START = 20, MONTH_END = 31, HDR_ROW = 8
+      const SKIP_DESCS = new Set(["line of bus", "district", "gl", "period", "orkin canada", "spare row", "spare", "actual", "*", ""])
+      const SKIP_PREFIXES = ["toc", "travel", "mktg dept"]
+      const SKIP_SUFFIXES = [" oh", " cc", " qa", " sales"]
+      const SKIP_EXACT = new Set(["024 atlas e", "028 atlas w", "functionals", "ntl accts (total)", "ttl qa"])
+      const SKIP_TTL = new Set(["ttl pac_gvr", "ttl island", "ttl barrie", "ttl edm", "ttl sask & reg", "ttl gta res", "ttl nfld"])
+
+      const toNum = (v: unknown): number | null => {
+        if (v === undefined || v === null || v === "") return null
+        if (typeof v === "number" && !Number.isNaN(v)) return v
+        const n = parseFloat(String(v).replace(/,/g, ""))
+        return Number.isNaN(n) ? null : n
+      }
+
+      const shouldSkip = (t: string) => {
+        if (SKIP_EXACT.has(t) || SKIP_TTL.has(t)) return true
+        if (SKIP_PREFIXES.some(p => t.startsWith(p))) return true
+        if (SKIP_SUFFIXES.some(s => t.endsWith(s))) return true
+        if (/^\d{3}\s/.test(t)) {
+          const num = parseInt(t, 10)
+          if ((num >= 400 && num < 500) || (num >= 600 && num < 700) || (num >= 800 && num < 1000)) return true
+        }
+        return false
+      }
+
+      // 2. Build master description map from ORKIN CANADA column T (single source of truth)
+      const masterDescByRow = new Map<number, string>()
+      const canadaSheet = workbook.Sheets["ORKIN CANADA"]
+      if (!canadaSheet) {
+        toast.error("Excel file is missing the ORKIN CANADA sheet")
+        return
+      }
+      const canadaRows = XLSX.utils.sheet_to_json(canadaSheet, { header: 1, defval: "" }) as unknown[][]
+      for (let i = HDR_ROW + 1; i < canadaRows.length; i++) {
+        const desc = String(canadaRows[i]?.[DESC_COL_T] ?? "").trim()
+        if (desc && !SKIP_DESCS.has(desc.toLowerCase()) && !/^\d+$/.test(desc)) {
+          masterDescByRow.set(i, desc)
+        }
+      }
+
+      // 3. Detect year and last month with data
+      let detectedYear: number | null = null
+      let lastMonth = 0
+
+      for (let r = 0; r < Math.min(canadaRows.length, 10); r++) {
+        for (let c = 0; c < (canadaRows[r]?.length || 0); c++) {
+          const m = String(canadaRows[r][c] || "").match(/\b(202[0-9])\b/)
+          if (m) { detectedYear = parseInt(m[1], 10); break }
+        }
+        if (detectedYear) break
+      }
+
+      for (let i = HDR_ROW + 1; i < canadaRows.length; i++) {
+        if (!masterDescByRow.has(i)) continue
+        for (let m = MONTH_END; m >= MONTH_START; m--) {
+          const val = toNum(canadaRows[i][m])
+          if (val !== null && val !== 0) {
+            const mo = m - MONTH_START + 1
+            if (mo > lastMonth) lastMonth = mo
+            break
+          }
+        }
+      }
+
+      if (!detectedYear || lastMonth === 0) {
+        toast.error("Could not detect year or month from the Excel file")
+        return
+      }
+
+      const months = Array.from({ length: lastMonth }, (_, i) => i + 1)
+
+      // 4. Extract data from each relevant sheet using master descriptions
+      const sheets: Array<{ tabName: string; rows: Array<{ description: string; month: number; value: number }> }> = []
+
+      for (const name of workbook.SheetNames) {
+        const low = name.trim().toLowerCase()
+        if (shouldSkip(low)) continue
+
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: "" }) as unknown[][]
+        const extracted: Array<{ description: string; month: number; value: number }> = []
+
+        for (const [rowIdx, desc] of masterDescByRow) {
+          const row = rows[rowIdx] || []
+          for (const mo of months) {
+            const colIdx = MONTH_START + mo - 1
+            extracted.push({ description: desc, month: mo, value: toNum(row[colIdx]) ?? 0 })
+          }
+        }
+
+        if (extracted.length > 0) {
+          sheets.push({ tabName: name, rows: extracted })
+        }
+      }
+
+      // 5. Send parsed data to API
+      const res = await fetch("/api/upload-actuals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year: detectedYear, months, sheets }),
+      })
+
+      const result = await res.json()
+
+      if (!res.ok) {
+        toast.error(result.error || "Upload failed")
+        return
+      }
+
+      toast.success(
+        `Actuals uploaded — ${result.branchesMatched} branches, ${result.regionsMatched} regions, ${result.monthRange} ${result.year}`
+      )
+
+      setSelectedFile(null)
+
+      // Refresh the actuals data
+      await fetchLastMonthActuals()
+    } catch (err) {
+      console.error("Upload error:", err)
+      toast.error("Failed to process actuals file")
+    } finally {
+      setUploading(false)
+    }
+  }
 
   // ──────────────────────────────────────────────────────────────
   // P&L recalculation constants
@@ -524,73 +735,75 @@ export default function ForecastPage() {
   const OVERHEAD_ALLOCATION_REVERSAL = "OVERHEAD ALLOCATION REVERSAL"
   const HOME_OFFICE_OVERHEAD = "HOME OFFICE OVERHEAD"
   const ACQUISITION_COST = "ACQUISITION COST"
-  const ULTIPRO_FEES = "ULTIPRO FEES"
+  const ULTIPRO_FEES = "ULTIPRO COST"
   const FOREIGN_EXCHANGE = "FOREIGN EXCHANGE GAIN/LOSS"
   const ROYALTY_FEES = "ROYALTY FEES"
   const INTEREST_EXPENSE = "INTEREST EXPENSE ORKIN"
   const CANADIAN_TAXES = "CANADIAN TAXES"
   const NON_OP_INT = "NON-OP INT EXP/(REV)"
 
-  /**
-   * Recalculate derived P&L subtotal rows for a given month.
-   * Returns a map of description → new forecast value for the derived rows.
-   */
-  function recalcDerivedRows(allForecasts: ForecastResult[], targetMonth: number): Map<string, number> {
-    // Recalculate basic totals from leaf items for this month
-    const leafRows = allForecasts.filter(f => f.month === targetMonth && isLeafDescription(f.description))
-
-    let totalRevenue = 0
-    let totalExpenses = 0
-    let totalOverhead = 0
-
-    leafRows.forEach(r => {
-      const d = normDesc(r.description)
-      if (isRevenueLine(d)) {
-        totalRevenue += r.forecastValue
-      } else if (d.includes("ALLOCATIONS")) {
-        totalOverhead += r.forecastValue
-      } else {
-        // Expense leaf (excluding overhead)
-        totalExpenses += r.forecastValue
-      }
-    })
-
-    const get = (desc: string) => {
-      const row = allForecasts.find(f => normDesc(f.description) === normDesc(desc) && f.month === targetMonth)
-      return row ? row.forecastValue : 0
-    }
-
-    const overheadReversal = get(OVERHEAD_ALLOCATION_REVERSAL)
-    const homeOffice = get(HOME_OFFICE_OVERHEAD)
-    const acquisitionCost = get(ACQUISITION_COST)
-    const ultiproFees = get(ULTIPRO_FEES)
-    const foreignExchange = get(FOREIGN_EXCHANGE)
-    const royaltyFees = get(ROYALTY_FEES)
-    const interestExpense = get(INTEREST_EXPENSE)
-    const canadianTaxes = get(CANADIAN_TAXES)
-    const nonOpInt = get(NON_OP_INT)
-
-    // Core P&L formulas
-    const contribution = totalRevenue - totalExpenses
-    const operatingProfit = contribution - totalOverhead
-    const bonusOperatingProfit = operatingProfit - overheadReversal
-    const externalProfit = bonusOperatingProfit - homeOffice - acquisitionCost - ultiproFees
-    const netProfit = externalProfit - foreignExchange - royaltyFees - interestExpense - canadianTaxes - nonOpInt
-
-    const derivedMap = new Map<string, number>()
-    derivedMap.set(normDesc(TOTAL_NET_REVENUE), Math.round(totalRevenue * 100) / 100)
-    derivedMap.set(normDesc(TOTAL_EXPENSES), Math.round(totalExpenses * 100) / 100)
-    derivedMap.set(normDesc(TOTAL_OVERHEAD_ALLOCATIONS), Math.round(totalOverhead * 100) / 100)
-    derivedMap.set(normDesc(DERIVED_ROW_CONTRIBUTION), Math.round(contribution * 100) / 100)
-    derivedMap.set(normDesc(DERIVED_ROW_OPERATING_PROFIT), Math.round(operatingProfit * 100) / 100)
-    derivedMap.set(normDesc(DERIVED_ROW_BONUS_OPERATING_PROFIT), Math.round(bonusOperatingProfit * 100) / 100)
-    derivedMap.set(normDesc(DERIVED_ROW_EXTERNAL_PROFIT), Math.round(externalProfit * 100) / 100)
-    derivedMap.set(normDesc(DERIVED_ROW_NET_PROFIT), Math.round(netProfit * 100) / 100)
-    return derivedMap
-  }
+  // ── DEPRECATED: recalcDerivedRows ──────────────────────────────────────────
+  // Previously used after edits to recalculate only 8 top-level P&L rows.
+  // Replaced by recomputeAllSubtotals() which handles all 43 subtotal rules
+  // (intermediate subtotals like SUBTOTAL MONTHLY, GROSS CONTRACT REVENUE, etc.)
+  // Kept commented for reference.
+  //
+  // function recalcDerivedRows(allForecasts: ForecastResult[], targetMonth: number): Map<string, number> {
+  //   const leafRows = allForecasts.filter(f => f.month === targetMonth && isLeafDescription(f.description))
+  //   let totalRevenue = 0, totalExpenses = 0, totalOverhead = 0
+  //   leafRows.forEach(r => {
+  //     const d = normDesc(r.description)
+  //     if (isRevenueLine(d)) totalRevenue += r.forecastValue
+  //     else if (d.includes("ALLOCATIONS")) totalOverhead += r.forecastValue
+  //     else totalExpenses += r.forecastValue
+  //   })
+  //   const get = (desc: string) => {
+  //     const row = allForecasts.find(f => normDesc(f.description) === normDesc(desc) && f.month === targetMonth)
+  //     return row ? row.forecastValue : 0
+  //   }
+  //   const contribution = totalRevenue - totalExpenses
+  //   const operatingProfit = contribution - totalOverhead
+  //   const bonusOperatingProfit = operatingProfit - get(OVERHEAD_ALLOCATION_REVERSAL)
+  //   const externalProfit = bonusOperatingProfit - get(HOME_OFFICE_OVERHEAD) - get(ACQUISITION_COST) - get(ULTIPRO_FEES)
+  //   const netProfit = externalProfit - get(FOREIGN_EXCHANGE) - get(ROYALTY_FEES) - get(INTEREST_EXPENSE) - get(CANADIAN_TAXES) - get(NON_OP_INT)
+  //   const derivedMap = new Map<string, number>()
+  //   derivedMap.set(normDesc(TOTAL_NET_REVENUE), Math.round(totalRevenue * 100) / 100)
+  //   derivedMap.set(normDesc(TOTAL_EXPENSES), Math.round(totalExpenses * 100) / 100)
+  //   derivedMap.set(normDesc(TOTAL_OVERHEAD_ALLOCATIONS), Math.round(totalOverhead * 100) / 100)
+  //   derivedMap.set(normDesc(DERIVED_ROW_CONTRIBUTION), Math.round(contribution * 100) / 100)
+  //   derivedMap.set(normDesc(DERIVED_ROW_OPERATING_PROFIT), Math.round(operatingProfit * 100) / 100)
+  //   derivedMap.set(normDesc(DERIVED_ROW_BONUS_OPERATING_PROFIT), Math.round(bonusOperatingProfit * 100) / 100)
+  //   derivedMap.set(normDesc(DERIVED_ROW_EXTERNAL_PROFIT), Math.round(externalProfit * 100) / 100)
+  //   derivedMap.set(normDesc(DERIVED_ROW_NET_PROFIT), Math.round(netProfit * 100) / 100)
+  //   return derivedMap
+  // }
 
   const handleUpdateForecast = async (description: string, month: number, newValue: number) => {
     if (!selectedBranch || selectedBranch === ALL_BRANCHES_ID) return
+
+    // Find the old value for audit logging
+    const oldRow = forecasts.find(f => f.description === description && f.month === month)
+    const oldValue = oldRow?.forecastValue ?? 0
+
+    // Log the edit to the audit trail (non-blocking – table may not exist yet)
+    if (userId && oldValue !== newValue) {
+      supabase
+        .from("forecast_audit_log")
+        .insert({
+          user_id: userId,
+          branch_id: selectedBranch,
+          description,
+          year: currentYear,
+          month,
+          old_value: oldValue,
+          new_value: newValue,
+        })
+        .then(({ error: auditErr }) => {
+          if (auditErr && auditErr.code !== "PGRST205") {
+            console.error("Error logging forecast edit:", auditErr)
+          }
+        })
+    }
 
     // 1. Update the edited row in the database
     const { error: updateError } = await supabase
@@ -607,8 +820,11 @@ export default function ForecastPage() {
     if (updateError) {
       console.error("Error updating forecast:", updateError)
       setError("Failed to update forecast")
+      toast.error("Failed to save forecast update")
       return
     }
+
+    toast.success(`${description} updated for ${getShortMonthName(month)}`)
 
     // 2. Build a working copy with the new value applied
     const updatedForecasts = forecasts.map(f => {
@@ -618,46 +834,28 @@ export default function ForecastPage() {
       return f
     })
 
-    // 3. Recalculate derived P&L rows for the affected month
-    const derivedMap = recalcDerivedRows(updatedForecasts, month)
+    // 3. Recompute ALL subtotals (intermediate + top-level) using the full hierarchy rules
+    const finalForecasts = recomputeAllSubtotals(updatedForecasts)
 
-    // 4. Apply derived values to local state + persist to database
+    // 4. Diff against old state to find which subtotal rows changed for DB persistence
     const dbUpdates: { description: string; value: number }[] = []
-    const finalForecasts = updatedForecasts.map(f => {
-      if (f.month !== month) return f
-
-      // Was this the directly-edited row?
-      const isEditedRow = f.description === description
-
-      // Is this a derived subtotal row?
+    const oldByKey = new Map<string, number>()
+    forecasts.forEach(f => {
+      if (f.month === month) oldByKey.set(normDesc(f.description), f.forecastValue)
+    })
+    finalForecasts.forEach(f => {
+      if (f.month !== month) return
       const nd = normDesc(f.description)
-      const derivedValue = derivedMap.get(nd)
-      const isDerived = derivedValue !== undefined
-
-      let newForecastValue = f.forecastValue
-      if (isEditedRow) {
-        newForecastValue = newValue
-      } else if (isDerived) {
-        newForecastValue = derivedValue
-        dbUpdates.push({ description: f.description, value: derivedValue })
-      }
-
-      const newVariance = newForecastValue - f.budgetValue
-      const newVariancePercent = f.budgetValue !== 0
-        ? ((newForecastValue - f.budgetValue) / f.budgetValue) * 100
-        : 0
-
-      return {
-        ...f,
-        forecastValue: newForecastValue,
-        variance: newVariance,
-        variancePercent: newVariancePercent
+      const oldVal = oldByKey.get(nd)
+      // Persist any row whose forecast value changed (subtotals + the edited leaf)
+      if (oldVal !== undefined && Math.abs(f.forecastValue - oldVal) > 0.001 && nd !== normDesc(description)) {
+        dbUpdates.push({ description: f.description, value: f.forecastValue })
       }
     })
 
     setForecasts(finalForecasts)
 
-    // 5. Persist derived row updates to database (fire-and-forget)
+    // 5. Persist subtotal updates to database (fire-and-forget)
     if (dbUpdates.length > 0) {
       const now = new Date().toISOString()
       Promise.all(
@@ -670,7 +868,7 @@ export default function ForecastPage() {
             .eq("year", currentYear)
             .eq("month", month)
         )
-      ).catch(err => console.error("Error saving derived rows:", err))
+      ).catch(err => console.error("Error saving subtotal rows:", err))
     }
   }
 
@@ -699,40 +897,25 @@ export default function ForecastPage() {
       })
       : filteredForecasts
 
-  // Summary stats: use LEAF items only to ensure real-time updates when children are edited
+  // Summary stats: read directly from subtotal rows so cards match the table exactly
   const monthRows = processedForecasts.filter(f => f.month === currentMonth)
-  let revenueForecast = 0
-  let revenueBudget = 0
-  let expenseForecast = 0
-  let expenseBudget = 0
+  const findMonthRow = (desc: string) => monthRows.find(f => normDesc(f.description) === normDesc(desc))
 
-  // Use a restrictive cap for display
-  const DISPLAY_CAP = 1000000000 // 1 Billion
+  const revenueRow = findMonthRow("TOTAL NET REVENUE")
+  const expenseRow = findMonthRow("TOTAL EXPENSES")
+  const contributionRow = findMonthRow("CONTRIBUTION B/4 OVERHEAD")
 
-  monthRows.forEach(f => {
-    const d = normDesc(f.description)
-    const isLeaf = isLeafDescription(d)
-    const val = Math.min(DISPLAY_CAP, f.forecastValue)
+  const revenueForecast = revenueRow?.forecastValue ?? 0
+  const revenueBudget = revenueRow?.budgetValue ?? 0
+  const expenseForecast = expenseRow?.forecastValue ?? 0
+  const expenseBudget = expenseRow?.budgetValue ?? 0
+  const contributionForecast = contributionRow?.forecastValue ?? 0
+  const contributionBudget = contributionRow?.budgetValue ?? 0
 
-    if (isLeaf && !BELOW_THE_LINE.has(d)) {
-      if (isRevenueLine(d)) {
-        revenueForecast += val
-        revenueBudget += f.budgetValue
-      } else {
-        // Expense leaf (excluding below-the-line items like overhead allocations)
-        expenseForecast += val
-        expenseBudget += f.budgetValue
-      }
-    }
-  })
   const revenueVariance = revenueForecast - revenueBudget
   const revenueVariancePct = revenueBudget !== 0 ? (revenueVariance / revenueBudget) * 100 : 0
   const expenseVariance = expenseForecast - expenseBudget
   const expenseVariancePct = expenseBudget !== 0 ? (expenseVariance / expenseBudget) * 100 : 0
-
-  // Derived Contribution B/4 Overhead for summary cards (= Revenue - Expenses before overhead)
-  const contributionForecast = revenueForecast - expenseForecast
-  const contributionBudget = revenueBudget - expenseBudget
   const contributionVariance = contributionForecast - contributionBudget
   const contributionPct = contributionBudget !== 0 ? (contributionVariance / Math.abs(contributionBudget)) * 100 : 0
 
@@ -740,29 +923,24 @@ export default function ForecastPage() {
   const monthsPresent = new Set(processedForecasts.map((f) => f.month))
   const hasFullYearData = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].every((m) => monthsPresent.has(m))
 
-  let annualRevenueForecast = 0
-  let annualRevenueBudget = 0
-  let annualExpenseForecast = 0
-  let annualExpenseBudget = 0
-
-  processedForecasts.forEach((f) => {
-    const d = normDesc(f.description)
-    const isLeaf = isLeafDescription(d)
-    const val = Math.min(DISPLAY_CAP, f.forecastValue)
-    if (isLeaf && !BELOW_THE_LINE.has(d)) {
-      if (isRevenueLine(d)) {
-        annualRevenueForecast += val
-        annualRevenueBudget += f.budgetValue
-      } else {
-        annualExpenseForecast += val
-        annualExpenseBudget += f.budgetValue
-      }
+  const findAnnualTotal = (desc: string) => {
+    const rows = processedForecasts.filter(f => normDesc(f.description) === normDesc(desc))
+    return {
+      forecast: rows.reduce((sum, f) => sum + f.forecastValue, 0),
+      budget: rows.reduce((sum, f) => sum + f.budgetValue, 0),
     }
-  })
+  }
 
-  // Full-year Contribution B/4 Overhead
-  const annualContributionForecast = annualRevenueForecast - annualExpenseForecast
-  const annualContributionBudget = annualRevenueBudget - annualExpenseBudget
+  const annualRevenue = findAnnualTotal("TOTAL NET REVENUE")
+  const annualExpense = findAnnualTotal("TOTAL EXPENSES")
+  const annualContribution = findAnnualTotal("CONTRIBUTION B/4 OVERHEAD")
+
+  const annualRevenueForecast = annualRevenue.forecast
+  const annualRevenueBudget = annualRevenue.budget
+  const annualExpenseForecast = annualExpense.forecast
+  const annualExpenseBudget = annualExpense.budget
+  const annualContributionForecast = annualContribution.forecast
+  const annualContributionBudget = annualContribution.budget
   const annualContributionVariance = annualContributionForecast - annualContributionBudget
 
   const exportToCSV = () => {
@@ -914,6 +1092,34 @@ export default function ForecastPage() {
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
+          {profile?.role === "hq_admin" && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xlsm"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                {selectedFile ? selectedFile.name : "Select Actuals File"}
+              </Button>
+              {selectedFile && (
+                <Button
+                  onClick={handleUploadActuals}
+                  disabled={uploading}
+                >
+                  {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                  {uploading ? "Uploading…" : "Upload"}
+                </Button>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -1034,9 +1240,9 @@ export default function ForecastPage() {
                 <CardContent>
                   <div className="text-xl font-bold">Forecast {formatCurrency(annualRevenueForecast)}</div>
                   <p className="text-xs text-muted-foreground">Budget {formatCurrency(annualRevenueBudget)}</p>
-                  <p className={cn("text-xs mt-1 font-medium", annualRevenueForecast >= annualRevenueBudget ? "text-accent" : "text-destructive")}>
+                  {/* <p className={cn("text-xs mt-1 font-medium", annualRevenueForecast >= annualRevenueBudget ? "text-accent" : "text-destructive")}>
                     Variance {annualRevenueForecast >= annualRevenueBudget ? "+" : ""}{formatCurrency(annualRevenueForecast - annualRevenueBudget)}
-                  </p>
+                  </p> */}
                 </CardContent>
               </Card>
               <Card className="border-primary/20 bg-primary/5">
@@ -1048,9 +1254,9 @@ export default function ForecastPage() {
                 <CardContent>
                   <div className="text-xl font-bold">Forecast {formatCurrency(annualExpenseForecast)}</div>
                   <p className="text-xs text-muted-foreground">Budget {formatCurrency(annualExpenseBudget)}</p>
-                  <p className={cn("text-xs mt-1 font-medium", annualExpenseForecast <= annualExpenseBudget ? "text-accent" : "text-destructive")}>
+                  {/* <p className={cn("text-xs mt-1 font-medium", annualExpenseForecast <= annualExpenseBudget ? "text-accent" : "text-destructive")}>
                     Variance {annualExpenseForecast <= annualExpenseBudget ? "" : "+"}{formatCurrency(annualExpenseForecast - annualExpenseBudget)}
-                  </p>
+                  </p> */}
                 </CardContent>
               </Card>
               <Card className="border-accent/20 bg-accent/5">
@@ -1062,9 +1268,9 @@ export default function ForecastPage() {
                 <CardContent>
                   <div className="text-xl font-bold">Forecast {formatCurrency(annualContributionForecast)}</div>
                   <p className="text-xs text-muted-foreground">Budget {formatCurrency(annualContributionBudget)}</p>
-                  <p className={cn("text-xs mt-1 font-medium", annualContributionForecast >= annualContributionBudget ? "text-accent" : "text-destructive")}>
+                  {/* <p className={cn("text-xs mt-1 font-medium", annualContributionForecast >= annualContributionBudget ? "text-accent" : "text-destructive")}>
                     Variance {annualContributionForecast >= annualContributionBudget ? "+" : ""}{formatCurrency(annualContributionVariance)}
-                  </p>
+                  </p> */}
                 </CardContent>
               </Card>
             </div>
@@ -1300,6 +1506,7 @@ export default function ForecastPage() {
                     currentMonth={currentMonth}
                     onUpdateForecast={handleUpdateForecast}
                     editable={profile?.role !== "branch_user" && selectedBranch !== ALL_BRANCHES_ID}
+                    lastMonthActuals={lastMonthActuals}
                   />
                 </TabsContent>
               </Tabs>

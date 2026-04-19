@@ -1,8 +1,10 @@
-import React from "react"
+import React, { Suspense } from "react"
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { Toaster } from 'sonner'
 import { AuthHashHandler } from '@/components/auth/auth-hash-handler'
+import { NavigationProgress } from '@/components/navigation-progress'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -25,8 +27,12 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`font-sans antialiased`} suppressHydrationWarning>
+        <Suspense fallback={null}>
+          <NavigationProgress />
+        </Suspense>
         <AuthHashHandler />
         {children}
+        <Toaster position="top-right" richColors />
         <Analytics />
       </body>
     </html>

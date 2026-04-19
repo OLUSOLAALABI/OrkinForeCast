@@ -31,7 +31,7 @@ export default async function DashboardLayout({
       <DashboardSidebar profile={profile} />
       <div className="flex-1 flex flex-col">
         <DashboardHeader profile={profile} />
-        <main className="flex-1 p-4 sm:p-6 overflow-auto min-w-0">
+        <main className="flex-1 p-4 sm:p-6 min-w-0">
           {children}
         </main>
       </div>
