@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import * as XLSX from "xlsx"
 import { ForecastChart, ForecastBarChart } from "@/components/dashboard/forecast-chart"
-import { ForecastTable } from "@/components/dashboard/forecast-table"
+import { ForecastTable, TEMPLATE_ORDER, HIDDEN_BELOW_EXTERNAL, normForMatch } from "@/components/dashboard/forecast-table"
 
 type Branch = {
   id: string
@@ -944,22 +944,98 @@ export default function ForecastPage() {
   const annualContributionVariance = annualContributionForecast - annualContributionBudget
 
   const exportToCSV = () => {
-    const headers = ["Description", "Month", "Forecast", "Budget", "Variance", "Variance %"]
-    const rows = filteredForecasts.map(f => [
-      f.description,
-      getShortMonthName(f.month),
-      f.forecastValue.toFixed(2),
-      f.budgetValue.toFixed(2),
-      f.variance.toFixed(2),
-      f.variancePercent.toFixed(2) + "%"
-    ])
+    const months = Array.from({ length: 12 }, (_, i) => i + 1)
+    const monthNames = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-    const csv = [headers, ...rows].map(row => row.join(",")).join("\n")
+    // Build header rows matching the table layout
+    const headerRow1 = ["Description"]
+    for (const m of months) {
+      headerRow1.push(monthNames[m], "", "", "")
+    }
+    headerRow1.push("Annual Total", "")
+
+    const headerRow2 = [""]
+    for (let i = 0; i < 12; i++) {
+      headerRow2.push("Forecast", "Budget", "Last Year", "Actuals")
+    }
+    headerRow2.push("Forecast", "Budget")
+
+    // Get descriptions in template order and filter hidden items (same as table)
+    const uniqueDescs = [...new Set(filteredForecasts.map(f => f.description))]
+      .filter(d => !HIDDEN_BELOW_EXTERNAL.has(normDesc(d)))
+    const sortedDescs = [...uniqueDescs].sort((a, b) => {
+      const na = normForMatch(a)
+      const nb = normForMatch(b)
+      const findIdx = (n: string) => {
+        const exact = TEMPLATE_ORDER.findIndex((t) => normForMatch(t) === n)
+        if (exact !== -1) return exact
+        return TEMPLATE_ORDER.findIndex((t) => {
+          const nt = normForMatch(t)
+          return n.startsWith(nt + " ") || nt.startsWith(n + " ")
+        })
+      }
+      const ia = findIdx(na)
+      const ib = findIdx(nb)
+      if (ia >= 0 && ib >= 0) return ia - ib
+      if (ia >= 0) return -1
+      if (ib >= 0) return 1
+      return a.localeCompare(b)
+    })
+
+    // Build data rows
+    const dataRows = sortedDescs.map(desc => {
+      const descForecasts = filteredForecasts.filter(f => f.description === desc)
+      const row: string[] = [desc]
+      let annualForecast = 0
+      let annualBudget = 0
+
+      for (const m of months) {
+        const f = descForecasts.find(x => x.month === m)
+        const forecastVal = f ? f.forecastValue : 0
+        const budgetVal = f ? f.budgetValue : 0
+        const lastYearVal = f ? f.lastYearValue : 0
+        const key = `${desc}\t${m}`
+        const actualsVal = lastMonthActuals?.get(key)
+
+        row.push(
+          forecastVal.toFixed(2),
+          budgetVal.toFixed(2),
+          lastYearVal.toFixed(2),
+          actualsVal !== undefined ? actualsVal.toFixed(2) : ""
+        )
+        annualForecast += forecastVal
+        annualBudget += budgetVal
+      }
+      row.push(annualForecast.toFixed(2), annualBudget.toFixed(2))
+      return row
+    })
+
+    // Escape fields containing commas or quotes
+    const escapeField = (field: string) => {
+      if (field.includes(",") || field.includes('"') || field.includes("\n")) {
+        return `"${field.replace(/"/g, '""')}"`
+      }
+      return field
+    }
+
+    // Build filename with branch name
+    let fileLabel = "all"
+    if (selectedBranch !== ALL_BRANCHES_ID) {
+      const branch = branches.find((b: Branch) => b.id === selectedBranch)
+      fileLabel = branch ? branch.name.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_") : selectedBranch
+    } else if (selectedRegionId && selectedRegionId !== ALL_REGIONS_ID) {
+      const region = regionsList.find((r) => r.id === selectedRegionId)
+      fileLabel = region ? "region_" + region.name.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_") : "region"
+    }
+
+    const csv = [headerRow1, headerRow2, ...dataRows]
+      .map(row => row.map(escapeField).join(","))
+      .join("\n")
     const blob = new Blob([csv], { type: "text/csv" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `forecast_${currentYear}_${selectedBranch === ALL_BRANCHES_ID ? "all" : selectedBranch}.csv`
+    a.download = `forecast_${currentYear}_${fileLabel}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }

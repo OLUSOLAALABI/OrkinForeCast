@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { LocalDate } from "@/components/local-date"
 import {
   Table,
   TableBody,
@@ -141,7 +142,7 @@ export default async function ActivityPage() {
                     return (
                       <TableRow key={entry.id}>
                         <TableCell className="text-muted-foreground whitespace-nowrap">
-                          {new Date(entry.created_at).toLocaleString()}
+                          <LocalDate date={entry.created_at} />
                         </TableCell>
                         <TableCell>{userName}</TableCell>
                         <TableCell>{entry.branches?.name ?? "-"}</TableCell>
@@ -212,7 +213,7 @@ export default async function ActivityPage() {
                     return (
                       <TableRow key={upload.id}>
                         <TableCell className="text-muted-foreground whitespace-nowrap">
-                          {new Date(upload.created_at).toLocaleString()}
+                          <LocalDate date={upload.created_at} />
                         </TableCell>
                         <TableCell>{userName}</TableCell>
                         <TableCell>{upload.branches?.name ?? "-"}</TableCell>

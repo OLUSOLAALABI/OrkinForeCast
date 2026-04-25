@@ -28,7 +28,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { Pencil, Check, X, Loader2, Calendar, CalendarDays, TrendingUp, TrendingDown, BarChart3, Filter, ArrowDownAZ, ListOrdered } from "lucide-react"
+import { Pencil, Check, X, Loader2, Calendar, CalendarDays, TrendingUp, TrendingDown, Filter, ArrowDownAZ, ListOrdered } from "lucide-react"
 import {
   type ForecastResult,
   getShortMonthName,
@@ -46,7 +46,7 @@ const KPI_REVENUE = "TOTAL NET REVENUE"
 const KPI_EXPENSE_LINES = new Set(["TOTAL EXPENSES", "TOTAL OVERHEAD ALLOCATIONS"])
 
 // Items hidden from display (below External Profit)
-const HIDDEN_BELOW_EXTERNAL = new Set([
+export const HIDDEN_BELOW_EXTERNAL = new Set([
   "FOREIGN EXCHANGE GAIN/LOSS",
   "ROYALTY FEES",
   "INTEREST EXPENSE ORKIN",
@@ -71,7 +71,7 @@ const BUDGET_ONLY_DESCS = new Set([
 ])
 
 // Template order matching production display order
-const TEMPLATE_ORDER = [
+export const TEMPLATE_ORDER = [
   "COMMERCIAL REVENUE",
   "COMMERCIAL BED BUG REVENUE (recur)",
   "FLY CONTROL",
@@ -235,7 +235,7 @@ const TEMPLATE_ORDER = [
 ]
 
 // Normalize for template matching (handles " - " vs ". " etc.)
-function normForMatch(s: string) {
+export function normForMatch(s: string) {
   return normDesc(s).replace(/[\s\-\.]+/g, " ").replace(/\s+/g, " ").trim()
 }
 
@@ -282,11 +282,6 @@ export function ForecastTable({
   const [showLastYear, setShowLastYear] = useState(true)
   const [showLastMonth, setShowLastMonth] = useState(true)
   const visibleMetricCount = [showForecast, showBudget, showLastYear, showLastMonth].filter(Boolean).length
-
-  // Floating row indicator
-  const [hoveredRow, setHoveredRow] = useState<string | null>(null)
-  const [hoveredMonth, setHoveredMonth] = useState<number | null>(null)
-  const [hoveredMetric, setHoveredMetric] = useState<string | null>(null)
 
   // Filter forecasts by view mode
   const filteredForecasts = forecasts.filter((f) => {
@@ -462,162 +457,174 @@ export function ForecastTable({
         </div>
       </div>
 
-      {hoveredRow && (
-        <div className="fixed right-4 top-1/2 -translate-y-1/2 z-50 bg-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold shadow-lg rounded-lg pointer-events-none">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="h-4 w-4 shrink-0" />
-            <span className="truncate max-w-[240px]">{hoveredRow}</span>
-          </div>
-          {(hoveredMonth !== null || hoveredMetric) && (
-            <div className="text-xs font-normal opacity-80 mt-1 pl-6 flex items-center gap-1.5">
-              {hoveredMonth !== null && <span>{hoveredMonth === 0 ? 'Annual Total' : `${getShortMonthName(hoveredMonth)} 2026`}</span>}
-              {hoveredMonth !== null && hoveredMetric && <span>&middot;</span>}
-              {hoveredMetric && <span>{hoveredMetric}</span>}
+        <div className="overflow-auto max-h-[80vh] border rounded-lg text-sm w-0 min-w-full">
+          {/* ── Header row 1: Month names ── */}
+          <div className="flex w-max min-w-full sticky top-0 z-30 bg-muted border-b font-bold">
+            <div className="w-[220px] min-w-[220px] shrink-0 sticky left-0 z-40 bg-muted px-3 py-2 border-r flex items-center justify-center font-bold shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] whitespace-normal break-words">
+              Description
             </div>
-          )}
-        </div>
-      )}
+            {months.map(month => (
+              <div
+                key={month}
+                className={cn(
+                  "shrink-0 text-center py-2 border-l",
+                  month === currentMonth && "border-b-2 border-b-primary"
+                )}
+                style={{ width: visibleMetricCount * 120 }}
+              >
+                {getShortMonthName(month)}
+              </div>
+            ))}
+            {(showForecast || showBudget) && (
+              <div className="shrink-0 text-center py-2 border-l bg-muted" style={{ width: [showForecast, showBudget].filter(Boolean).length * 120 }}>
+                Annual Total
+              </div>
+            )}
+          </div>
 
-      <div className="border rounded-lg relative">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/30">
-              <TableHead rowSpan={2} className="min-w-[200px] font-medium align-middle border-r bg-muted/80">Description</TableHead>
-              {months.map(month => (
-                <TableHead
-                  key={month}
-                  colSpan={visibleMetricCount}
-                  className={cn(
-                    "text-center font-bold border-l",
-                    month === currentMonth && "bg-primary/5"
-                  )}
-                >
-                  {getShortMonthName(month)}
-                </TableHead>
-              ))}
-              {(showForecast || showBudget) && <TableHead colSpan={[showForecast, showBudget].filter(Boolean).length} className="text-center bg-muted/50 font-bold border-l">Annual Total</TableHead>}
-            </TableRow>
-            <TableRow className="bg-muted/20 text-xs">
-              {months.map(month => (
-                <Fragment key={month}>
-                  {showForecast && <TableHead className={cn("text-center min-w-[120px] font-medium border-l", month === currentMonth && "bg-primary/5")}>Forecast</TableHead>}
-                  {showBudget && <TableHead className={cn("text-center min-w-[120px] font-medium text-muted-foreground", month === currentMonth && "bg-primary/5")}>Budget</TableHead>}
-                  {showLastYear && <TableHead className={cn("text-center min-w-[120px] font-medium text-muted-foreground", month === currentMonth && "bg-primary/5")}>Last Year</TableHead>}
-                  {showLastMonth && <TableHead className={cn("text-center min-w-[120px] font-medium text-muted-foreground", month === currentMonth && "bg-primary/5")}>Actuals</TableHead>}
-                </Fragment>
-              ))}
-              {showForecast && <TableHead className="text-center min-w-[120px] font-medium bg-muted/50 border-l">Forecast</TableHead>}
-              {showBudget && <TableHead className="text-center min-w-[120px] font-medium bg-muted/50 text-muted-foreground">Budget</TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {descriptions.map((description, idx) => {
-              const descForecasts = filteredForecasts.filter(f => f.description === description)
-              const ytdForecast = descForecasts.reduce((sum, f) => sum + f.forecastValue, 0)
-              const ytdBudget = descForecasts.reduce((sum, f) => sum + f.budgetValue, 0)
-              const isEven = idx % 2 === 0
+          {/* ── Header row 2: Metric sub-headers ── */}
+          <div className="flex w-max min-w-full sticky top-[37px] z-30 bg-muted border-b text-xs">
+            <div className="w-[220px] min-w-[220px] shrink-0 sticky left-0 z-40 bg-muted border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" />
+            {months.map(month => (
+              <Fragment key={month}>
+                {showForecast && <div className={cn("shrink-0 w-[120px] text-center font-medium px-2 py-2 border-l", month === currentMonth && "border-b-2 border-b-primary")}>Forecast</div>}
+                {showBudget && <div className={cn("shrink-0 w-[120px] text-center font-medium text-muted-foreground px-2 py-2", month === currentMonth && "border-b-2 border-b-primary")}>Budget</div>}
+                {showLastYear && <div className={cn("shrink-0 w-[120px] text-center font-medium text-muted-foreground px-2 py-2", month === currentMonth && "border-b-2 border-b-primary")}>Last Year</div>}
+                {showLastMonth && <div className={cn("shrink-0 w-[120px] text-center font-medium text-muted-foreground px-2 py-2", month === currentMonth && "border-b-2 border-b-primary")}>Actuals</div>}
+              </Fragment>
+            ))}
+            {showForecast && <div className="shrink-0 w-[120px] text-center font-medium px-2 py-2 border-l">Forecast</div>}
+            {showBudget && <div className="shrink-0 w-[120px] text-center font-medium text-muted-foreground px-2 py-2">Budget</div>}
+          </div>
 
-              return (
-                <TableRow
-                  key={description}
-                  className={cn("hover:bg-accent/30", isEven ? "bg-background" : "bg-muted/20")}
-                  onMouseEnter={() => setHoveredRow(description)}
-                  onMouseLeave={() => { setHoveredRow(null); setHoveredMonth(null); setHoveredMetric(null) }}
-                >
-                  <TableCell className="font-medium py-3 border-r">
-                    <span className={cn(isSubtotalDescription(description) && "font-bold text-foreground")}>
-                      {description}
-                    </span>
-                  </TableCell>
-                  {months.map(month => {
-                    const f = descForecasts.find(m => m.month === month)
-                    const isCurrent = month === currentMonth
-                    const isClickable = editable && onUpdateForecast && f && isLeafDescription(description) && !BUDGET_ONLY_DESCS.has(normDesc(description))
+          {/* ── Data rows ── */}
+          {descriptions.map((description, idx) => {
+            const descForecasts = filteredForecasts.filter(f => f.description === description)
+            const ytdForecast = descForecasts.reduce((sum, f) => sum + f.forecastValue, 0)
+            const ytdBudget = descForecasts.reduce((sum, f) => sum + f.budgetValue, 0)
+            const isEven = idx % 2 === 0
+            const rowBg = isEven ? "bg-background" : "bg-secondary"
 
-                    return (
-                      <Fragment key={month}>
-                        {showForecast && <TableCell
+            return (
+              <div
+                key={description}
+                className={cn("flex w-max min-w-full border-b group transition-colors", rowBg)}
+              >
+                <div className={cn("w-[220px] min-w-[220px] shrink-0 sticky left-0 z-20 px-3 py-3 border-r font-medium shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] whitespace-normal break-words", isEven ? "bg-background" : "bg-secondary", "group-hover:bg-accent")}>
+                  <span className={cn(isSubtotalDescription(description) && "font-bold text-foreground")}>
+                    {description}
+                  </span>
+                </div>
+                {months.map(month => {
+                  const f = descForecasts.find(m => m.month === month)
+                  const isCurrent = month === currentMonth
+                  const isClickable = editable && onUpdateForecast && f && isLeafDescription(description) && !BUDGET_ONLY_DESCS.has(normDesc(description))
+
+                  return (
+                    <Fragment key={month}>
+                      {showForecast && (
+                        <div
                           className={cn(
-                            "text-center p-2 relative group border-l",
+                            "shrink-0 w-[120px] text-center p-2 relative group/cell border-l",
                             isCurrent && "bg-primary/5",
                             isClickable && "cursor-pointer hover:bg-muted/40 transition-colors"
                           )}
                           onClick={() => isClickable && handleCellClick(description, month, f.forecastValue)}
-                          onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Forecast') }}
                         >
                           <span className="text-xs font-semibold">
                             {f ? formatCurrency(f.forecastValue) : "-"}
                           </span>
                           {isClickable && (
-                            <Pencil className="h-2.5 w-2.5 absolute top-1 right-1 opacity-0 group-hover:opacity-30" />
+                            <Pencil className="h-2.5 w-2.5 absolute top-1 right-1 opacity-0 group-hover/cell:opacity-30" />
                           )}
-                        </TableCell>}
-                        {showBudget && <TableCell className={cn("text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")} onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Budget') }}>
+                        </div>
+                      )}
+                      {showBudget && (
+                        <div className={cn("shrink-0 w-[120px] text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")}>
                           <span className="text-xs">{f ? formatCurrency(f.budgetValue) : "-"}</span>
-                        </TableCell>}
-                        {showLastYear && <TableCell className={cn("text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")} onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Last Year') }}>
+                        </div>
+                      )}
+                      {showLastYear && (
+                        <div className={cn("shrink-0 w-[120px] text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")}>
                           <span className="text-xs">{f ? formatCurrency(f.lastYearValue) : "-"}</span>
-                        </TableCell>}
-                        {showLastMonth && <TableCell className={cn("text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")} onMouseEnter={() => { setHoveredMonth(month); setHoveredMetric('Actuals') }}>
+                        </div>
+                      )}
+                      {showLastMonth && (
+                        <div className={cn("shrink-0 w-[120px] text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")}>
                           <span className="text-xs">{(() => {
                             const key = `${description}\t${month}`
                             const val = lastMonthActuals?.get(key)
                             return val !== undefined ? formatCurrency(val) : "-"
                           })()}</span>
-                        </TableCell>}
-                      </Fragment>
-                    )
-                  })}
-                  {showForecast && <TableCell className="text-right font-bold bg-muted/10 border-l" onMouseEnter={() => { setHoveredMonth(0); setHoveredMetric('Forecast') }}>
+                        </div>
+                      )}
+                    </Fragment>
+                  )
+                })}
+                {showForecast && (
+                  <div className="shrink-0 w-[120px] text-right font-bold p-2 bg-muted/10 border-l">
                     {formatCurrency(ytdForecast)}
-                  </TableCell>}
-                  {showBudget && <TableCell className="text-right font-bold bg-muted/10 text-muted-foreground" onMouseEnter={() => { setHoveredMonth(0); setHoveredMetric('Budget') }}>
+                  </div>
+                )}
+                {showBudget && (
+                  <div className="shrink-0 w-[120px] text-right font-bold p-2 bg-muted/10 text-muted-foreground">
                     {formatCurrency(ytdBudget)}
-                  </TableCell>}
-                </TableRow>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {/* ── Grand Total row ── */}
+          <div className="flex w-max min-w-full border-t-2 bg-muted font-bold">
+            <div className="w-[220px] min-w-[220px] shrink-0 sticky left-0 z-20 bg-muted px-3 py-3 border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] whitespace-normal break-words">
+              <div className="flex flex-col">
+                <span>Grand Total</span>
+                <span className="text-[10px] font-normal text-muted-foreground uppercase tracking-tight">
+                  {viewMode === "both" ? "Rev + Exp" : viewMode}
+                </span>
+              </div>
+            </div>
+            {months.map(month => {
+              const monthF = forecasts.filter(f => f.month === month && totalFilter(f)).reduce((sum, f) => sum + f.forecastValue, 0)
+              const monthB = forecasts.filter(f => f.month === month && totalFilter(f)).reduce((sum, f) => sum + f.budgetValue, 0)
+              return (
+                <Fragment key={month}>
+                  {showForecast && (
+                    <div className={cn("shrink-0 w-[120px] text-center p-2 border-l", month === currentMonth && "bg-primary/5")}>
+                      <span className="text-xs">{formatCurrency(monthF)}</span>
+                    </div>
+                  )}
+                  {showBudget && (
+                    <div className={cn("shrink-0 w-[120px] text-center p-2 text-muted-foreground", month === currentMonth && "bg-primary/5")}>
+                      <span className="text-xs">{formatCurrency(monthB)}</span>
+                    </div>
+                  )}
+                  {showLastYear && (
+                    <div className={cn("shrink-0 w-[120px] text-center p-2 text-muted-foreground", month === currentMonth && "bg-primary/5")}>
+                      <span className="text-xs">{formatCurrency(forecasts.filter(f => f.month === month && totalFilter(f)).reduce((sum, f) => sum + f.lastYearValue, 0))}</span>
+                    </div>
+                  )}
+                  {showLastMonth && (
+                    <div className={cn("shrink-0 w-[120px] text-center p-2 text-muted-foreground", month === currentMonth && "bg-primary/5")}>
+                      <span className="text-xs">-</span>
+                    </div>
+                  )}
+                </Fragment>
               )
             })}
-
-            {/* Grand Total row */}
-            <TableRow className="bg-muted/50 font-bold border-t-2">
-              <TableCell className="border-r">
-                <div className="flex flex-col">
-                  <span>Grand Total</span>
-                  <span className="text-[10px] font-normal text-muted-foreground uppercase tracking-tight">
-                    {viewMode === "both" ? "Rev + Exp" : viewMode}
-                  </span>
-                </div>
-              </TableCell>
-              {months.map(month => {
-                const monthF = forecasts.filter(f => f.month === month && totalFilter(f)).reduce((sum, f) => sum + f.forecastValue, 0)
-                const monthB = forecasts.filter(f => f.month === month && totalFilter(f)).reduce((sum, f) => sum + f.budgetValue, 0)
-                return (
-                  <Fragment key={month}>
-                    {showForecast && <TableCell className={cn("text-center p-2 border-l", month === currentMonth && "bg-primary/5")}>
-                      <span className="text-xs">{formatCurrency(monthF)}</span>
-                    </TableCell>}
-                    {showBudget && <TableCell className={cn("text-center p-2 text-muted-foreground", month === currentMonth && "bg-primary/5")}>
-                      <span className="text-xs">{formatCurrency(monthB)}</span>
-                    </TableCell>}
-                    {showLastYear && <TableCell className={cn("text-center p-2 text-muted-foreground", month === currentMonth && "bg-primary/5")}>
-                      <span className="text-xs">{formatCurrency(forecasts.filter(f => f.month === month && totalFilter(f)).reduce((sum, f) => sum + f.lastYearValue, 0))}</span>
-                    </TableCell>}
-                    {showLastMonth && <TableCell className={cn("text-center p-2 text-muted-foreground", month === currentMonth && "bg-primary/5")}>
-                      <span className="text-xs">-</span>
-                    </TableCell>}
-                  </Fragment>
-                )
-              })}
-              {showForecast && <TableCell className="text-right bg-muted/20 border-l">
+            {showForecast && (
+              <div className="shrink-0 w-[120px] text-right p-2 bg-muted/20 border-l">
                 {formatCurrency(forecasts.filter(f => totalFilter(f)).reduce((sum, f) => sum + f.forecastValue, 0))}
-              </TableCell>}
-              {showBudget && <TableCell className="text-right bg-muted/20 text-muted-foreground">
+              </div>
+            )}
+            {showBudget && (
+              <div className="shrink-0 w-[120px] text-right p-2 bg-muted/20 text-muted-foreground">
                 {formatCurrency(forecasts.filter(f => totalFilter(f)).reduce((sum, f) => sum + f.budgetValue, 0))}
-              </TableCell>}
-            </TableRow>
-          </TableBody>
-        </Table>
-      </div>
+              </div>
+            )}
+          </div>
+        </div>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
