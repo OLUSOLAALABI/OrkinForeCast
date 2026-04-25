@@ -46,7 +46,7 @@ const KPI_REVENUE = "TOTAL NET REVENUE"
 const KPI_EXPENSE_LINES = new Set(["TOTAL EXPENSES", "TOTAL OVERHEAD ALLOCATIONS"])
 
 // Items hidden from display (below External Profit)
-const HIDDEN_BELOW_EXTERNAL = new Set([
+export const HIDDEN_BELOW_EXTERNAL = new Set([
   "FOREIGN EXCHANGE GAIN/LOSS",
   "ROYALTY FEES",
   "INTEREST EXPENSE ORKIN",
@@ -71,7 +71,7 @@ const BUDGET_ONLY_DESCS = new Set([
 ])
 
 // Template order matching production display order
-const TEMPLATE_ORDER = [
+export const TEMPLATE_ORDER = [
   "COMMERCIAL REVENUE",
   "COMMERCIAL BED BUG REVENUE (recur)",
   "FLY CONTROL",
@@ -235,7 +235,7 @@ const TEMPLATE_ORDER = [
 ]
 
 // Normalize for template matching (handles " - " vs ". " etc.)
-function normForMatch(s: string) {
+export function normForMatch(s: string) {
   return normDesc(s).replace(/[\s\-\.]+/g, " ").replace(/\s+/g, " ").trim()
 }
 
