@@ -270,15 +270,12 @@ export default function ForecastPage() {
       byBranch.set(r.branch_id, cur)
     })
 
+    const zeroes = { revenueForecast: 0, revenueBudget: 0, expenseForecast: 0, expenseBudget: 0, netProfitForecast: 0, netProfitBudget: 0 }
     return branches
-      .filter((b) => byBranch.has(b.id))
-      .map((b) => {
-        const data = byBranch.get(b.id)!
-        return {
-          branch: b,
-          ...data,
-        }
-      })
+      .map((b) => ({
+        branch: b,
+        ...(byBranch.get(b.id) || zeroes),
+      }))
       .sort((a, b) => a.branch.name.localeCompare(b.branch.name))
   }, [selectedBranch, rawForecastRows, currentMonth, branches])
 
