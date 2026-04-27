@@ -37,6 +37,13 @@ __pycache__/
 .venv/
 venv/
 
-# optional: uncomment to avoid committing Excel data (large binaries)
-# /branchData/
+# Excel data files (large binaries)
+/branchData/
+
+# DB backups
+/backup/
+
+# Temp inspection scripts
+/scripts/_*.mjs
+
 nul
