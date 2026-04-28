@@ -136,10 +136,15 @@ const SUBTOTAL_RULES: SubtotalRule[] = [
 ]
 
 /**
- * Recompute all subtotal/total rows from their children for both forecast and budget values.
+ * Recompute all subtotal/total rows from their children for forecast values.
  * Also overrides overhead allocation forecast values with budget (statutory/fixed).
+ * 
+ * @param isSummary - true when viewing aggregated data across multiple branches.
+ *   In summary mode, the DB subtotals are already correct sums so we skip
+ *   recalculation (which would double-count due to intermediate subtotals).
+ *   We only apply the budget-only overrides and variance recalc.
  */
-function recomputeAllSubtotals(forecasts: ForecastResult[]): ForecastResult[] {
+function recomputeAllSubtotals(forecasts: ForecastResult[], isSummary = false): ForecastResult[] {
   if (forecasts.length === 0) return forecasts
   const result = forecasts.map(f => {
     // Step 1: Override statutory/fixed items forecast with budget
@@ -149,38 +154,48 @@ function recomputeAllSubtotals(forecasts: ForecastResult[]): ForecastResult[] {
     return { ...f }
   })
 
-  // Step 2: Recompute subtotals per month
-  const months = [...new Set(result.map(f => f.month))]
+  // Step 2: Recompute subtotals per month (single-branch view only)
+  // In summary view, subtotals are already aggregated correctly from the DB.
+  if (!isSummary) {
+    const months = [...new Set(result.map(f => f.month))]
 
-  for (const month of months) {
-    // Build lookup: normDesc → index in result array
-    const descMap = new Map<string, number>()
-    result.forEach((f, i) => {
-      if (f.month === month) descMap.set(normDesc(f.description), i)
-    })
+    for (const month of months) {
+      // Build lookup: normDesc → index in result array
+      const descMap = new Map<string, number>()
+      result.forEach((f, i) => {
+        if (f.month === month) descMap.set(normDesc(f.description), i)
+      })
 
-    for (const rule of SUBTOTAL_RULES) {
-      const key = normDesc(rule.desc)
-      const idx = descMap.get(key)
-      if (idx === undefined) continue // subtotal row doesn't exist
+      for (const rule of SUBTOTAL_RULES) {
+        const key = normDesc(rule.desc)
+        const idx = descMap.get(key)
+        if (idx === undefined) continue // subtotal row doesn't exist
 
-      let fSum = 0
-      let bSum = 0
-      for (const child of rule.add) {
-        const ci = descMap.get(normDesc(child))
-        if (ci !== undefined) { fSum += result[ci].forecastValue; bSum += result[ci].budgetValue }
-      }
-      if (rule.sub) {
-        for (const child of rule.sub) {
+        let fSum = 0
+        for (const child of rule.add) {
           const ci = descMap.get(normDesc(child))
-          if (ci !== undefined) { fSum -= result[ci].forecastValue; bSum -= result[ci].budgetValue }
+          if (ci !== undefined) { fSum += result[ci].forecastValue }
         }
-      }
+        if (rule.sub) {
+          for (const child of rule.sub) {
+            const ci = descMap.get(normDesc(child))
+            if (ci !== undefined) { fSum -= result[ci].forecastValue }
+          }
+        }
 
-      const fv = Math.round(fSum * 100) / 100
-      const bv = Math.round(bSum * 100) / 100
+        const fv = Math.round(fSum * 100) / 100
+        const bv = result[idx].budgetValue // Budget stays as imported from Excel
+        const v = Math.round((fv - bv) * 100) / 100
+        result[idx] = { ...result[idx], forecastValue: fv, variance: v, variancePercent: bv !== 0 ? Math.round(((fv - bv) / bv) * 100 * 100) / 100 : 0 }
+      }
+    }
+  } else {
+    // In summary mode, just recalculate variance from stored forecast & budget values
+    for (let i = 0; i < result.length; i++) {
+      const fv = result[i].forecastValue
+      const bv = result[i].budgetValue
       const v = Math.round((fv - bv) * 100) / 100
-      result[idx] = { ...result[idx], forecastValue: fv, budgetValue: bv, variance: v, variancePercent: bv !== 0 ? Math.round(((fv - bv) / bv) * 100 * 100) / 100 : 0 }
+      result[i] = { ...result[i], variance: v, variancePercent: bv !== 0 ? Math.round(((fv - bv) / bv) * 100 * 100) / 100 : 0 }
     }
   }
 
@@ -227,50 +242,52 @@ export default function ForecastPage() {
     return [...m.values()].sort((a, b) => a.name.localeCompare(b.name))
   }, [branches])
 
-  // Per-branch breakdown for region/HQ summary view (revenue + expenses + net profit for current month)
+  // Per-branch breakdown for region/HQ summary view (revenue + expenses + contribution b/4 overhead for current month)
+  // Uses stored subtotal rows (TOTAL NET REVENUE, TOTAL EXPENSES, CONTRIBUTION B/4 OVERHEAD) to match the Excel exactly.
   const branchBreakdown = useMemo(() => {
     if (selectedBranch !== ALL_BRANCHES_ID || rawForecastRows.length === 0) return []
 
     const monthRows = rawForecastRows.filter((r) => r.month === currentMonth)
     const byBranch = new Map<
       string,
-      { revenueForecast: number; revenueBudget: number; expenseForecast: number; expenseBudget: number; netProfitForecast: number; netProfitBudget: number }
+      { revenueForecast: number; revenueBudget: number; expenseForecast: number; expenseBudget: number; contribForecast: number; contribBudget: number }
     >()
 
-    const DISPLAY_CAP = 1000000000 // 1 Billion
+    const KEY_REV = normDesc("TOTAL NET REVENUE")
+    const KEY_EXP = normDesc("TOTAL EXPENSES")
+    const KEY_CONTRIB = normDesc("CONTRIBUTION B/4 OVERHEAD")
 
     monthRows.forEach((r) => {
       const d = normDesc(r.description)
-      const isLeaf = isLeafDescription(d)
-      if (!isLeaf) return
+      if (d !== KEY_REV && d !== KEY_EXP && d !== KEY_CONTRIB) return
 
       const cur = byBranch.get(r.branch_id) || {
         revenueForecast: 0,
         revenueBudget: 0,
         expenseForecast: 0,
         expenseBudget: 0,
-        netProfitForecast: 0,
-        netProfitBudget: 0
+        contribForecast: 0,
+        contribBudget: 0
       }
 
-      const val = Math.min(DISPLAY_CAP, Number(r.forecast_value ?? 0))
+      const val = Number(r.forecast_value ?? 0)
       const bud = Number(r.budget_value ?? 0)
 
-      if (isRevenueLine(d)) {
-        cur.revenueForecast += val
-        cur.revenueBudget += bud
-      } else {
-        cur.expenseForecast += val
-        cur.expenseBudget += bud
+      if (d === KEY_REV) {
+        cur.revenueForecast = val
+        cur.revenueBudget = bud
+      } else if (d === KEY_EXP) {
+        cur.expenseForecast = val
+        cur.expenseBudget = bud
+      } else if (d === KEY_CONTRIB) {
+        cur.contribForecast = val
+        cur.contribBudget = bud
       }
-
-      cur.netProfitForecast = cur.revenueForecast - cur.expenseForecast
-      cur.netProfitBudget = cur.revenueBudget - cur.expenseBudget
 
       byBranch.set(r.branch_id, cur)
     })
 
-    const zeroes = { revenueForecast: 0, revenueBudget: 0, expenseForecast: 0, expenseBudget: 0, netProfitForecast: 0, netProfitBudget: 0 }
+    const zeroes = { revenueForecast: 0, revenueBudget: 0, expenseForecast: 0, expenseBudget: 0, contribForecast: 0, contribBudget: 0 }
     return branches
       .map((b) => ({
         branch: b,
@@ -870,7 +887,9 @@ export default function ForecastPage() {
   }
 
   // ── Recompute subtotals & override overhead allocations for display ──
-  const processedForecasts = useMemo(() => recomputeAllSubtotals(forecasts), [forecasts])
+  // In summary view (all branches), skip subtotal recalculation — DB values are already correct sums.
+  const isSummaryView = selectedBranch === ALL_BRANCHES_ID
+  const processedForecasts = useMemo(() => recomputeAllSubtotals(forecasts, isSummaryView), [forecasts, isSummaryView])
 
   const descriptions = [...new Set(processedForecasts.map(f => f.description))]
   const filteredByCategory =
@@ -1437,8 +1456,8 @@ export default function ForecastPage() {
                         <th className="text-right py-3 px-2 font-medium">Revenue (B)</th>
                         <th className="text-right py-3 px-2 font-medium">Expense (F)</th>
                         <th className="text-right py-3 px-2 font-medium">Expense (B)</th>
-                        <th className="text-right py-3 px-2 font-medium">Net Profit (F)</th>
-                        <th className="text-right py-3 px-2 font-medium">Net Profit (B)</th>
+                        <th className="text-right py-3 px-2 font-medium">Contrib B/4 OH (F)</th>
+                        <th className="text-right py-3 px-2 font-medium">Contrib B/4 OH (B)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1458,12 +1477,12 @@ export default function ForecastPage() {
                           <td className="text-right py-2 px-2 text-muted-foreground">{formatCurrency(row.revenueBudget)}</td>
                           <td className="text-right py-2 px-2">{formatCurrency(row.expenseForecast)}</td>
                           <td className="text-right py-2 px-2 text-muted-foreground">{formatCurrency(row.expenseBudget)}</td>
-                          <td className="text-right py-2 px-2 font-bold">{formatCurrency(row.netProfitForecast)}</td>
+                          <td className="text-right py-2 px-2 font-bold">{formatCurrency(row.contribForecast)}</td>
                           <td className="text-right py-2 px-2">
                             <div className="flex flex-col items-end">
-                              <span className="text-muted-foreground">{formatCurrency(row.netProfitBudget)}</span>
-                              <span className={cn("text-[10px] font-medium", (row.netProfitForecast - row.netProfitBudget) >= 0 ? "text-accent" : "text-destructive")}>
-                                {(row.netProfitForecast - row.netProfitBudget) >= 0 ? "+" : ""}{formatCurrency(row.netProfitForecast - row.netProfitBudget)}
+                              <span className="text-muted-foreground">{formatCurrency(row.contribBudget)}</span>
+                              <span className={cn("text-[10px] font-medium", (row.contribForecast - row.contribBudget) >= 0 ? "text-accent" : "text-destructive")}>
+                                {(row.contribForecast - row.contribBudget) >= 0 ? "+" : ""}{formatCurrency(row.contribForecast - row.contribBudget)}
                               </span>
                             </div>
                           </td>
@@ -1484,10 +1503,10 @@ export default function ForecastPage() {
                           {formatCurrency(branchBreakdown.reduce((sum, b) => sum + b.expenseBudget, 0))}
                         </td>
                         <td className="text-right py-3 px-2">
-                          {formatCurrency(branchBreakdown.reduce((sum, b) => sum + b.netProfitForecast, 0))}
+                          {formatCurrency(branchBreakdown.reduce((sum, b) => sum + b.contribForecast, 0))}
                         </td>
                         <td className="text-right py-3 px-2">
-                          {formatCurrency(branchBreakdown.reduce((sum, b) => sum + b.netProfitBudget, 0))}
+                          {formatCurrency(branchBreakdown.reduce((sum, b) => sum + b.contribBudget, 0))}
                         </td>
                       </tr>
                     </tbody>
