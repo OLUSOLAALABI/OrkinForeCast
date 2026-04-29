@@ -306,7 +306,7 @@ export default function ForecastPage() {
       const allRows: any[] = []
 
       while (true) {
-        const { data, error } = await buildQuery().range(from, from + pageSize - 1)
+        const { data, error } = await buildQuery().order("id").range(from, from + pageSize - 1)
         if (error) throw error
         const rows = data ?? []
         allRows.push(...rows)
