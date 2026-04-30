@@ -299,26 +299,6 @@ export default function ForecastPage() {
   const years = [2024, 2025, 2026, 2027, 2028]
   const months = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: getShortMonthName(i + 1) }))
 
-  const fetchForecastRowsPaginated = useCallback(
-    async (buildQuery: () => any) => {
-      const pageSize = 1000
-      let from = 0
-      const allRows: any[] = []
-
-      while (true) {
-        const { data, error } = await buildQuery().order("id").range(from, from + pageSize - 1)
-        if (error) throw error
-        const rows = data ?? []
-        allRows.push(...rows)
-        if (rows.length < pageSize) break
-        from += pageSize
-      }
-
-      return allRows
-    },
-    []
-  )
-
   // When profile loads, branch users get their branch auto-selected; others get branch list
   useEffect(() => {
     const fetchData = async () => {
@@ -397,100 +377,90 @@ export default function ForecastPage() {
           setLoading(false)
           return
         }
-        const aggregate = (forecastRows: any[], actualRows: any[]): ForecastResult[] => {
-          const byKey = new Map<string, { forecast: number; budget: number; actual: number; lastMonth: number; lastYear: number }>()
 
-          forecastRows.forEach(f => {
-            const key = `${f.description}\t${f.month}`
-            const cur = byKey.get(key)
-            const forecast = Number(f.forecast_value)
-            const budget = Number(f.budget_value)
-            const lastMonth = Number(f.last_month_value)
-            const lastYear = Number(f.last_year_value)
-            if (!cur) {
-              byKey.set(key, { forecast, budget, actual: 0, lastMonth, lastYear })
-            } else {
-              byKey.set(key, {
-                forecast: cur.forecast + forecast,
-                budget: cur.budget + budget,
-                actual: 0,
-                lastMonth: cur.lastMonth + lastMonth,
-                lastYear: cur.lastYear + lastYear,
-              })
-            }
-          })
-
-          actualRows.forEach(a => {
-            const key = `${a.description}\t${a.month}`
-            const cur = byKey.get(key)
-            const val = Number(a.value)
-            if (cur) {
-              cur.actual += val
-            } else {
-              byKey.set(key, { forecast: 0, budget: 0, actual: val, lastMonth: 0, lastYear: 0 })
-            }
-          })
-
-          const result: ForecastResult[] = Array.from(byKey.entries()).map(([key, v]) => {
-            const [description, monthStr] = key.split("\t")
-            const month = Number(monthStr)
-            const variance = v.forecast - v.budget
-            const variancePercent = v.budget !== 0 ? (variance / v.budget) * 100 : 0
-            return {
-              description,
-              month,
-              forecastValue: v.forecast,
-              budgetValue: v.budget,
-              actualValue: v.actual,
-              lastMonthValue: v.lastMonth,
-              lastYearValue: v.lastYear,
-              variance,
-              variancePercent,
-            }
-          })
-          result.sort((a, b) => (a.description.localeCompare(b.description) || a.month - b.month))
-          return result
+        // Use RPC for server-side aggregation (single query instead of 200+ paginated fetches)
+        // PostgREST max-rows is 1000, so fetch in two page ranges.
+        // Retry once on timeout — first call on cold cache can exceed statement_timeout.
+        const callAgg = async () => {
+          const [r1, r2] = await Promise.all([
+            supabase.rpc("aggregate_forecasts", { p_branch_ids: branchIds, p_year: currentYear }).range(0, 999),
+            supabase.rpc("aggregate_forecasts", { p_branch_ids: branchIds, p_year: currentYear }).range(1000, 2999),
+          ])
+          if (r1.error) throw r1.error
+          return [...(r1.data ?? []), ...(r2.data ?? [])]
         }
-        // Fetch all 12 months once; month dropdown only filters the display (no refetch)
-        const CHUNK = 15
-        const chunks: string[][] = []
-        for (let i = 0; i < branchIds.length; i += CHUNK) {
-          chunks.push(branchIds.slice(i, i + CHUNK))
-        }
-        // Fetch forecasts and actuals in parallel chunks
-        const forecastChunks = await Promise.all(
-          chunks.map((ids) =>
-            fetchForecastRowsPaginated(() =>
-              supabase.from("forecasts").select("*").in("branch_id", ids).eq("year", currentYear)
-            )
-          )
-        )
-        const actualChunks = await Promise.all(
-          chunks.map((ids) =>
-            supabase.from("actuals").select("*").in("branch_id", ids).eq("year", currentYear)
-          )
-        )
 
-        const allForecastRows = forecastChunks.flat()
-        const allActualRows = actualChunks.map(r => r.data || []).flat()
-
-        if (allForecastRows.length > 0 || allActualRows.length > 0) {
-          setForecasts(aggregate(allForecastRows, allActualRows))
-          setRawForecastRows(allForecastRows)
-        } else {
-          setForecasts([])
-          setRawForecastRows([])
+        let aggRows: any[]
+        try {
+          aggRows = await callAgg()
+        } catch (e: any) {
+          if (e?.message?.includes("timeout") || e?.code === "57014") {
+            // Retry once — data is now in PostgreSQL cache
+            aggRows = await callAgg()
+          } else {
+            throw e
+          }
         }
+
+        const [breakdownResult, actualResult] = await Promise.all([
+          supabase.rpc("branch_breakdown", { p_branch_ids: branchIds, p_year: currentYear, p_month: currentMonth }).limit(1000),
+          supabase.from("actuals").select("description,month,value").in("branch_id", branchIds).eq("year", currentYear).limit(5000)
+        ])
+
+        const actualRows = actualResult.data ?? []
+
+        // Build forecasts from aggregated data
+        const byKey = new Map<string, { forecast: number; budget: number; actual: number; lastMonth: number; lastYear: number }>()
+        aggRows.forEach((f: any) => {
+          const key = `${f.description}\t${f.month}`
+          byKey.set(key, {
+            forecast: Number(f.forecast_value),
+            budget: Number(f.budget_value),
+            actual: 0,
+            lastMonth: Number(f.last_month_value),
+            lastYear: Number(f.last_year_value),
+          })
+        })
+        actualRows.forEach((a: any) => {
+          const key = `${a.description}\t${a.month}`
+          const cur = byKey.get(key)
+          const val = Number(a.value)
+          if (cur) {
+            cur.actual += val
+          } else {
+            byKey.set(key, { forecast: 0, budget: 0, actual: val, lastMonth: 0, lastYear: 0 })
+          }
+        })
+
+        const forecasts: ForecastResult[] = Array.from(byKey.entries()).map(([key, v]) => {
+          const [description, monthStr] = key.split("\t")
+          const month = Number(monthStr)
+          const variance = v.forecast - v.budget
+          const variancePercent = v.budget !== 0 ? (variance / v.budget) * 100 : 0
+          return { description, month, forecastValue: v.forecast, budgetValue: v.budget, actualValue: v.actual, lastMonthValue: v.lastMonth, lastYearValue: v.lastYear, variance, variancePercent }
+        })
+        forecasts.sort((a, b) => (a.description.localeCompare(b.description) || a.month - b.month))
+
+        // Build rawForecastRows from branch_breakdown for the branchBreakdown memo
+        const breakdownRows = (breakdownResult.data ?? []).map((r: any) => ({
+          branch_id: r.branch_id,
+          description: r.description,
+          month: currentMonth,
+          forecast_value: Number(r.forecast_value),
+          budget_value: Number(r.budget_value),
+        }))
+
+        setForecasts(forecasts)
+        setRawForecastRows(breakdownRows)
       } else {
-        // Single branch view
+        // Single branch view — small dataset (~2000 rows), no pagination needed
         const [forecastRes, actualRes] = await Promise.all([
-          fetchForecastRowsPaginated(() =>
-            supabase.from("forecasts").select("*").eq("branch_id", selectedBranch).eq("year", currentYear)
-          ),
+          supabase.from("forecasts").select("*").eq("branch_id", selectedBranch).eq("year", currentYear).order("id").limit(5000),
           supabase.from("actuals").select("*").eq("branch_id", selectedBranch).eq("year", currentYear)
         ])
 
-        const existingForecasts = forecastRes ?? []
+        if (forecastRes.error) throw forecastRes.error
+        const existingForecasts = forecastRes.data ?? []
         const existingActuals = actualRes.data ?? []
 
         const actualMap = new Map<string, number>()
@@ -522,14 +492,14 @@ export default function ForecastPage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedBranch, selectedRegionId, supabase, currentYear, branches, fetchForecastRowsPaginated])
+  }, [selectedBranch, selectedRegionId, supabase, currentYear, currentMonth, branches])
 
   const fetchVersionRef = useRef(0)
 
   useEffect(() => {
     if (!selectedBranch) return
     const branchCount = selectedBranch === ALL_BRANCHES_ID ? branches.length : 0
-    const key = `${selectedBranch}-${selectedRegionId}-${currentYear}-${branchCount}`
+    const key = `${selectedBranch}-${selectedRegionId}-${currentYear}-${currentMonth}-${branchCount}`
     if (lastFetchedKeyRef.current === key) return
     lastFetchedKeyRef.current = key
     // Increment version so stale in-flight fetches are discarded
@@ -541,7 +511,7 @@ export default function ForecastPage() {
         lastFetchedKeyRef.current = null
       }
     })
-  }, [selectedBranch, selectedRegionId, currentYear, branches.length, loadForecasts])
+  }, [selectedBranch, selectedRegionId, currentYear, currentMonth, branches.length, loadForecasts])
 
   // ── Fetch last month actuals from the last_month_actuals table ──
   const fetchLastMonthActuals = useCallback(async () => {

@@ -128,3 +128,61 @@ Variant names are also normalized:
 - `COMMERCIAL BED BUG REVENUE (odd job)` → `COMMERCIAL BED BUG REVENUE`
 - `PAYROLL SERVICE FEES` → `ULTIPRO COST`
 - `ADMIN INCENTIVE PAID` → `MANAGERS INCENTIVES PAID`
+- `PC MGMT FAILURE` → `PC COMM MGMT FAILURE`
+- `ULTIPRO FEES` → `ULTIPRO COST`
+
+## Recent Changes (April 2026)
+
+### Description Name Alignment
+
+The 03-2026 actuals P&L file is the **canonical standard** for description names. Budget files use slightly different names for some items. The reimport script's `DESCRIPTION_NORMALIZE` map handles these:
+
+| Budget File Name | Canonical Name (Actuals) |
+|-----------------|------------------------|
+| PC MGMT FAILURE | PC COMM MGMT FAILURE |
+| ULTIPRO FEES | ULTIPRO COST |
+
+### TEMPLATE_ORDER (Display Ordering)
+
+Both `forecast-table.tsx` and `actuals-report-form.tsx` have a `TEMPLATE_ORDER` array that controls the row display order. These were updated to match the exact 183-item order from the 03-2026 actuals file.
+
+Key items that were missing or re-positioned:
+- Added: PEST CONTROL REVENUE, MISCELLANEOUS REVENUE, TERMITE (TC) REVENUE, PAYROLL, PERSONNEL RELATED, MATERIALS AND SUPPLIES, VEHICLE EXPENSES, VEHICLE STANDING EXPENSES, AUTO ALLOWANCE, INSURANCE & CLAIMS, BAD DEBTS, OTHER EXPENSES, FIXED EXPENSES, CONTROLLABLE EXPENSES, TELEPHONE & UTILITIES, OVERHEAD ALLOCATIONS, NON RECURRING FEES
+- Moved: TC MGMT FAILURE (to after TERMITE TREATING, before PRETREAT)
+- Added duplicates: ORKIN/AIRE (M&S), DEPRECIATION (fixed)
+
+### Performance: HQ-Level Aggregation (RPC Functions)
+
+The HQ summary view previously fetched all ~196K individual forecast rows client-side and aggregated in the browser — taking 2+ minutes. This was replaced with server-side PostgreSQL aggregation via two RPC functions:
+
+```sql
+-- Returns ~2000 rows (description × month) pre-summed across all branches
+aggregate_forecasts(p_branch_ids UUID[], p_year INTEGER)
+
+-- Returns ~300 rows (3 key subtotals per branch for one month)
+branch_breakdown(p_branch_ids UUID[], p_year INTEGER, p_month INTEGER)
+```
+
+SQL migration: `scripts/015_aggregate_forecasts_rpc.sql`
+
+A composite index on `(year, branch_id)` prevents cold-cache timeouts (`scripts/016_forecasts_index.sql`). The frontend also retries automatically on timeout so users never see the error.
+
+The HQ page now loads in 2-5 seconds instead of 2+ minutes.
+
+### Pagination Fix
+
+The original paginated query used `.range()` without `.order()`, causing PostgreSQL to return non-deterministic results — duplicate rows on some pages, missing rows on others. This made HQ totals show $226M instead of the correct $253M.
+
+Fix: For HQ, replaced pagination entirely with RPC aggregation. For single-branch view, uses `.order("id").limit(5000)` (a single branch has ~2000 rows, well within limit).
+
+### Forecast Recalculation
+
+After any reimport, `forecast_value` gets set equal to `budget_value`. The forecast calculation script must be re-run to compute proper forecasts:
+
+```bash
+node scripts/calculate-forecasts.mjs
+```
+
+This computes 2026 forecasts using: 2025 seasonal pattern + YoY growth from 2024→2025 + working days + seasonal index.
+
+

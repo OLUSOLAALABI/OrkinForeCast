@@ -1,6 +1,6 @@
 # Orkin – Branch Forecasting
 
-Monthly forecasting app for **46 operational branches** across 7 regions, with role-based access: **HQ Admin**, **Region Admin**, and **Branch User**. Import branch-level Excel actuals/budget via scripts, generate forecasts per branch, and drill down by region.
+Monthly forecasting app for **100 branches** across 8 regions, with role-based access: **HQ Admin**, **Region Admin**, and **Branch User**. Import branch-level Excel actuals/budget via scripts, generate forecasts per branch, and drill down by region.
 
 ## Tech stack
 
