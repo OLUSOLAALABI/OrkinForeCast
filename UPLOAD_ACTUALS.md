@@ -11,7 +11,8 @@ The source file is a **Total Company P&L** workbook (e.g. `03-2026 Total Company
 - **ORKIN CANADA** — company-wide totals (the master sheet)
 - **Region sheets** — e.g. `PACIFIC REGION`, `PRAIRIE REGION`, `GTA REGION`, etc.
 - **Branch sheets** — e.g. `001 TOR W`, `025 WESTSIDE`, `050 S SHORE-MTL`, etc.
-- **Overhead/support sheets** — e.g. `042 PAC OH`, `949 GVR CC` (skipped during upload)
+- **Overhead/support sheets** — e.g. `042 PAC OH`, `949 GVR CC`, `442 PAC QA`, `649 GVR SALES`
+- **FUNCTIONALS branches** — e.g. `947 CAN OH`, `976 BMT`, `991 NA QA`, `993 HR`
 
 ### Column Layout (same across all sheets)
 
@@ -61,22 +62,13 @@ The API (`/api/upload-actuals`) maps each sheet tab to a database entity:
 
 ### Skipped Tabs
 
-These tab patterns are intentionally skipped (overhead, QA, sales cost centers):
+Only true non-data tabs are skipped:
 
-- Suffix: ` OH`, ` CC`, ` QA`, ` SALES`
 - Prefix: `ToC`, `Travel`, `Mktg Dept`
-- Exact: `024 ATLAS E`, `028 ATLAS W`, `FUNCTIONALS`, `NTL ACCTS (total)`, `TTL QA`
-- Region subtotals: `TTL PAC_GVR`, `TTL ISLAND`, `TTL BARRIE`, `TTL EDM`, `TTL SASK & REG`, `TTL GTA RES`, `TTL NFLD`
-- Numeric ranges 400-499, 600-699, 800-999 (e.g. `442 PAC QA`, `649 GVR SALES`)
+- Exact: `NTL ACCTS (total)`, `TTL QA`, `Inputs`
+- Region subtotals starting with `TTL`: `TTL PAC_GVR`, `TTL ISLAND`, `TTL BARRIE`, `TTL EDM`, `TTL SASK & REG`, `TTL GTA RES`, `TTL NFLD`
 
-### Known Unmatched Branches
-
-These appear in the Excel but have no matching DB branch (as of Apr 2026):
-
-| Tab | Reason |
-|---|---|
-| `013 GTA RES W` | DB has `4 GTA RES W` (code 004, not 013). Pending client decision. |
-| `047 EDM C`, `043 PRA FUM`, `020 BARRIE RES`, `017 ON FUM`, `064 QC FUM` | Not tracked as standalone branches |
+**All OH, CC, QA, SALES, and FUNCTIONALS branches are now included** (100 branches total). Any tab not matching a DB branch/region is silently skipped and reported in the API response's `skippedTabs` array.
 
 ## Database Schema
 
