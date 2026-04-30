@@ -453,14 +453,15 @@ export default function ForecastPage() {
         setForecasts(forecasts)
         setRawForecastRows(breakdownRows)
       } else {
-        // Single branch view — small dataset (~2000 rows), no pagination needed
-        const [forecastRes, actualRes] = await Promise.all([
-          supabase.from("forecasts").select("*").eq("branch_id", selectedBranch).eq("year", currentYear).order("id").limit(5000),
+        // Single branch view — ~2000 rows, but PostgREST max-rows is 1000, so fetch in 2 pages
+        const [forecastRes1, forecastRes2, actualRes] = await Promise.all([
+          supabase.from("forecasts").select("*").eq("branch_id", selectedBranch).eq("year", currentYear).order("id").range(0, 999),
+          supabase.from("forecasts").select("*").eq("branch_id", selectedBranch).eq("year", currentYear).order("id").range(1000, 1999),
           supabase.from("actuals").select("*").eq("branch_id", selectedBranch).eq("year", currentYear)
         ])
 
-        if (forecastRes.error) throw forecastRes.error
-        const existingForecasts = forecastRes.data ?? []
+        if (forecastRes1.error) throw forecastRes1.error
+        const existingForecasts = [...(forecastRes1.data ?? []), ...(forecastRes2.data ?? [])]
         const existingActuals = actualRes.data ?? []
 
         const actualMap = new Map<string, number>()
@@ -583,8 +584,7 @@ export default function ForecastPage() {
       const DESC_COL_T = 19, MONTH_START = 20, MONTH_END = 31, HDR_ROW = 8
       const SKIP_DESCS = new Set(["line of bus", "district", "gl", "period", "orkin canada", "spare row", "spare", "actual", "*", ""])
       const SKIP_PREFIXES = ["toc", "travel", "mktg dept"]
-      const SKIP_SUFFIXES = [" oh", " cc", " qa", " sales"]
-      const SKIP_EXACT = new Set(["024 atlas e", "028 atlas w", "functionals", "ntl accts (total)", "ttl qa"])
+      const SKIP_EXACT = new Set(["ntl accts (total)", "ttl qa", "inputs"])
       const SKIP_TTL = new Set(["ttl pac_gvr", "ttl island", "ttl barrie", "ttl edm", "ttl sask & reg", "ttl gta res", "ttl nfld"])
 
       const toNum = (v: unknown): number | null => {
@@ -597,11 +597,7 @@ export default function ForecastPage() {
       const shouldSkip = (t: string) => {
         if (SKIP_EXACT.has(t) || SKIP_TTL.has(t)) return true
         if (SKIP_PREFIXES.some(p => t.startsWith(p))) return true
-        if (SKIP_SUFFIXES.some(s => t.endsWith(s))) return true
-        if (/^\d{3}\s/.test(t)) {
-          const num = parseInt(t, 10)
-          if ((num >= 400 && num < 500) || (num >= 600 && num < 700) || (num >= 800 && num < 1000)) return true
-        }
+        if (/^ttl\s/i.test(t)) return true
         return false
       }
 

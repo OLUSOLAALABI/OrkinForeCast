@@ -185,7 +185,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 6. Bulk insert in batches with retry
-    const BATCH_SIZE = 200
+    const BATCH_SIZE = 1000
     const MAX_RETRIES = 3
     let totalInserted = 0
     for (let i = 0; i < allRows.length; i += BATCH_SIZE) {
