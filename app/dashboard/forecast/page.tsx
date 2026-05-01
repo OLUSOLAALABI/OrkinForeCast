@@ -481,9 +481,64 @@ export default function ForecastPage() {
             variance: f.forecast_value - f.budget_value,
             variancePercent: f.budget_value !== 0 ? ((f.forecast_value - f.budget_value) / f.budget_value) * 100 : 0,
           }))
+
+          // Fill missing TEMPLATE_ORDER descriptions with zero rows for all 12 months
+          // Skip section headers (category labels that never have financial data)
+          const SECTION_HEADERS = new Set([
+            "PEST CONTROL REVENUE", "ALLOWANCES", "MISCELLANEOUS REVENUE",
+            "TERMITE (TC) REVENUE", "PAYROLL", "PERSONNEL RELATED",
+            "MATERIALS AND SUPPLIES", "VEHICLE EXPENSES", "VEHICLE STANDING EXPENSES",
+            "INSURANCE & CLAIMS", "BAD DEBTS", "OTHER EXPENSES", "FIXED EXPENSES",
+            "CONTROLLABLE EXPENSES", "TELEPHONE & UTILITIES", "OVERHEAD ALLOCATIONS",
+          ].map(normForMatch))
+          const existingKeys = new Set(formattedForecasts.map(f => `${normForMatch(f.description)}\t${f.month}`))
+          for (const desc of TEMPLATE_ORDER) {
+            if (SECTION_HEADERS.has(normForMatch(desc))) continue
+            for (let m = 1; m <= 12; m++) {
+              if (!existingKeys.has(`${normForMatch(desc)}\t${m}`)) {
+                formattedForecasts.push({
+                  description: desc,
+                  month: m,
+                  forecastValue: 0,
+                  budgetValue: 0,
+                  actualValue: 0,
+                  lastMonthValue: 0,
+                  lastYearValue: 0,
+                  variance: 0,
+                  variancePercent: 0,
+                })
+              }
+            }
+          }
+
           setForecasts(formattedForecasts)
         } else {
-          setForecasts([])
+          // No data at all — generate full zero template (skip section headers)
+          const SECTION_HEADERS_EMPTY = new Set([
+            "PEST CONTROL REVENUE", "ALLOWANCES", "MISCELLANEOUS REVENUE",
+            "TERMITE (TC) REVENUE", "PAYROLL", "PERSONNEL RELATED",
+            "MATERIALS AND SUPPLIES", "VEHICLE EXPENSES", "VEHICLE STANDING EXPENSES",
+            "INSURANCE & CLAIMS", "BAD DEBTS", "OTHER EXPENSES", "FIXED EXPENSES",
+            "CONTROLLABLE EXPENSES", "TELEPHONE & UTILITIES", "OVERHEAD ALLOCATIONS",
+          ].map(normForMatch))
+          const zeroForecasts: ForecastResult[] = []
+          for (const desc of TEMPLATE_ORDER) {
+            if (SECTION_HEADERS_EMPTY.has(normForMatch(desc))) continue
+            for (let m = 1; m <= 12; m++) {
+              zeroForecasts.push({
+                description: desc,
+                month: m,
+                forecastValue: 0,
+                budgetValue: 0,
+                actualValue: 0,
+                lastMonthValue: 0,
+                lastYearValue: 0,
+                variance: 0,
+                variancePercent: 0,
+              })
+            }
+          }
+          setForecasts(zeroForecasts)
         }
         setRawForecastRows(existingForecasts)
       }
