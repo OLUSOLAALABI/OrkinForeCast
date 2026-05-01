@@ -7,7 +7,7 @@ import Link from "next/link"
 import { formatCurrency } from "@/lib/forecasting"
 
 const KPI_REVENUE = "TOTAL NET REVENUE"
-const KPI_EXPENSE_LINES = new Set(["TOTAL EXPENSES", "TOTAL OVERHEAD ALLOCATIONS"])
+const KPI_EXPENSE_LINES = new Set(["TOTAL EXPENSES"])
 
 export default async function RegionsPage() {
   const supabase = await createClient()
