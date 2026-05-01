@@ -6,7 +6,7 @@ import Link from "next/link"
 import { BranchesList } from "./branches-list"
 
 const KPI_REVENUE = "TOTAL NET REVENUE"
-const KPI_EXPENSE_LINES = new Set(["TOTAL EXPENSES", "TOTAL OVERHEAD ALLOCATIONS"])
+const KPI_EXPENSE_LINES = new Set(["TOTAL EXPENSES"])
 
 type Props = { searchParams: Promise<{ region?: string }> }
 
