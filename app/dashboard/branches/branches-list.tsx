@@ -141,52 +141,46 @@ export function BranchesList({
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {forecastData ? (
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Revenue F vs B</span>
-                        <span className="font-semibold">
-                          {formatCurrency(forecastData.revenueForecast)} / {formatCurrency(forecastData.revenueBudget)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Revenue variance</span>
-                        <div className="flex items-center gap-1">
-                          {revenueVariance >= 0 ? (
-                            <TrendingUp className="h-3 w-3 text-accent" />
-                          ) : (
-                            <TrendingDown className="h-3 w-3 text-destructive" />
-                          )}
-                          <Badge variant={revenueVariance >= 0 ? "default" : "destructive"} className="text-xs">
-                            {revenueVariancePercent >= 0 ? "+" : ""}{revenueVariancePercent.toFixed(1)}%
-                          </Badge>
-                        </div>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Expense F vs B</span>
-                        <span className="font-semibold">
-                          {formatCurrency(forecastData.expenseForecast)} / {formatCurrency(forecastData.expenseBudget)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Expense variance</span>
-                        <div className="flex items-center gap-1">
-                          {expenseVariance >= 0 ? (
-                            <TrendingUp className="h-3 w-3 text-accent" />
-                          ) : (
-                            <TrendingDown className="h-3 w-3 text-destructive" />
-                          )}
-                          <Badge variant={expenseVariance >= 0 ? "default" : "destructive"} className="text-xs">
-                            {expenseVariancePercent >= 0 ? "+" : ""}{expenseVariancePercent.toFixed(1)}%
-                          </Badge>
-                        </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Revenue F vs B</span>
+                      <span className="font-semibold">
+                        {formatCurrency(forecastData?.revenueForecast ?? 0)} / {formatCurrency(forecastData?.revenueBudget ?? 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Revenue variance</span>
+                      <div className="flex items-center gap-1">
+                        {revenueVariance >= 0 ? (
+                          <TrendingUp className="h-3 w-3 text-accent" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3 text-destructive" />
+                        )}
+                        <Badge variant={revenueVariance >= 0 ? "default" : "destructive"} className="text-xs">
+                          {revenueVariancePercent >= 0 ? "+" : ""}{revenueVariancePercent.toFixed(1)}%
+                        </Badge>
                       </div>
                     </div>
-                  ) : (
-                    <div className="text-center py-2">
-                      <p className="text-sm text-muted-foreground">No forecast data</p>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Expense F vs B</span>
+                      <span className="font-semibold">
+                        {formatCurrency(forecastData?.expenseForecast ?? 0)} / {formatCurrency(forecastData?.expenseBudget ?? 0)}
+                      </span>
                     </div>
-                  )}
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Expense variance</span>
+                      <div className="flex items-center gap-1">
+                        {expenseVariance >= 0 ? (
+                          <TrendingUp className="h-3 w-3 text-accent" />
+                        ) : (
+                          <TrendingDown className="h-3 w-3 text-destructive" />
+                        )}
+                        <Badge variant={expenseVariance >= 0 ? "default" : "destructive"} className="text-xs">
+                          {expenseVariancePercent >= 0 ? "+" : ""}{expenseVariancePercent.toFixed(1)}%
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
 
                   {lastUpload && (
                     <div className="flex items-center gap-2 pt-2 border-t border-border">
