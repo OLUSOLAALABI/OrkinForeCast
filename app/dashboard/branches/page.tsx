@@ -71,26 +71,21 @@ export default async function BranchesPage({ searchParams }: Props) {
     regionName = region?.name ?? null
   }
 
-  // Fetch forecast summaries for each branch
+  // Fetch forecast summaries for each branch — only the KPI rows we display
   const branchIds = branches?.map(b => b.id) || []
+  const kpiDescriptions = [KPI_REVENUE, ...KPI_EXPENSE_LINES]
+  const currentMonth = new Date().getMonth() + 1 // 1-12
   let forecasts: Array<{ branch_id: string; description: string; forecast_value: number; budget_value: number }> = []
   if (branchIds.length > 0) {
-    const pageSize = 1000
-    let from = 0
-    while (true) {
-      const { data, error } = await supabase
-        .from("forecasts")
-        .select("branch_id, description, forecast_value, budget_value")
-        .in("branch_id", branchIds)
-        .eq("year", 2026)
-        .eq("month", 1)
-        .range(from, from + pageSize - 1)
-      if (error) throw error
-      const rows = data || []
-      forecasts.push(...rows)
-      if (rows.length < pageSize) break
-      from += pageSize
-    }
+    const { data, error } = await supabase
+      .from("forecasts")
+      .select("branch_id, description, forecast_value, budget_value")
+      .in("branch_id", branchIds)
+      .in("description", kpiDescriptions)
+      .eq("year", 2026)
+      .eq("month", currentMonth)
+    if (error) throw error
+    forecasts = data || []
   }
 
   // Fetch recent uploads for each branch
