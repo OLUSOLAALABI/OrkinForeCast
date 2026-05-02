@@ -184,12 +184,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 5b. Deduplicate rows – the Excel P&L can have the same description on
+    //     multiple rows, which would violate the partial unique indexes.
+    //     Keep the last value for each unique key.
+    const deduped = new Map<string, typeof allRows[number]>()
+    for (const row of allRows) {
+      const scope = row.is_company_wide
+        ? "company"
+        : row.region_id
+          ? `region:${row.region_id}`
+          : `branch:${row.branch_id}`
+      const key = `${scope}|${row.description}|${row.year}|${row.month}`
+      deduped.set(key, row)
+    }
+    const dedupedRows = Array.from(deduped.values())
+
     // 6. Bulk insert in batches with retry
     const BATCH_SIZE = 1000
     const MAX_RETRIES = 3
     let totalInserted = 0
-    for (let i = 0; i < allRows.length; i += BATCH_SIZE) {
-      const batch = allRows.slice(i, i + BATCH_SIZE)
+    for (let i = 0; i < dedupedRows.length; i += BATCH_SIZE) {
+      const batch = dedupedRows.slice(i, i + BATCH_SIZE)
       let lastErr = null
 
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
