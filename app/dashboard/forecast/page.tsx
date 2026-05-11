@@ -725,19 +725,42 @@ export default function ForecastPage() {
         }
       }
 
-      // 5. Send parsed data to API
-      const res = await fetch("/api/upload-actuals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ year: detectedYear, months, sheets }),
-      })
+      // 5. Send parsed data to API in batches to stay under Vercel's 4.5 MB payload limit.
+      //    With ~108 sheets × 203 descriptions the full JSON can easily exceed 5 MB,
+      //    so we chunk sheets into groups of 20 and POST them sequentially.
+      const SHEETS_PER_BATCH = 20
+      const totalBatches = Math.max(1, Math.ceil(sheets.length / SHEETS_PER_BATCH))
 
-      const result = await res.json()
+      let totalBranchesMatched = 0
+      let totalRegionsMatched = 0
+      let finalResult: Record<string, unknown> | null = null
 
-      if (!res.ok) {
-        toast.error(result.error || "Upload failed")
-        return
+      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+        const batchSheets = sheets.slice(batchIndex * SHEETS_PER_BATCH, (batchIndex + 1) * SHEETS_PER_BATCH)
+        const isFinalBatch = batchIndex === totalBatches - 1
+
+        const res = await fetch("/api/upload-actuals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ year: detectedYear, months, sheets: batchSheets, batchIndex, isFinalBatch }),
+        })
+
+        const result = await res.json()
+
+        if (!res.ok) {
+          toast.error(result.error || `Upload failed on batch ${batchIndex + 1}`)
+          return
+        }
+
+        totalBranchesMatched += result.branchesMatched ?? 0
+        totalRegionsMatched += result.regionsMatched ?? 0
+
+        if (isFinalBatch) {
+          finalResult = { ...result, branchesMatched: totalBranchesMatched, regionsMatched: totalRegionsMatched }
+        }
       }
+
+      const result = finalResult!
 
       toast.success(
         `Actuals uploaded — ${result.branchesMatched} branches, ${result.regionsMatched} regions, ${result.monthRange} ${result.year}`

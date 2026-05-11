@@ -6,12 +6,14 @@ export const maxDuration = 60
 
 /**
  * Accepts pre-parsed actuals data (JSON) from the client.
- * The client parses the Excel file with xlsx in the browser and sends structured data.
+ * Supports chunked uploads to stay under Vercel's 4.5MB payload limit.
  *
  * Body: {
  *   year: number,
  *   months: number[],
- *   sheets: Array<{ tabName: string, rows: Array<{ description: string, month: number, value: number }> }>
+ *   sheets: Array<{ tabName: string, rows: Array<{ description: string, month: number, value: number }> }>,
+ *   batchIndex?: number,   // 0-based batch number (default 0)
+ *   isFinalBatch?: boolean // whether this is the last batch (default true)
  * }
  */
 export async function POST(request: NextRequest) {
@@ -38,10 +40,12 @@ export async function POST(request: NextRequest) {
 
     // 2. Parse the JSON body
     const body = await request.json()
-    const { year, months, sheets } = body as {
+    const { year, months, sheets, batchIndex = 0, isFinalBatch = true } = body as {
       year: number
       months: number[]
       sheets: Array<{ tabName: string; rows: Array<{ description: string; month: number; value: number }> }>
+      batchIndex?: number
+      isFinalBatch?: boolean
     }
 
     if (!year || !months || !Array.isArray(months) || months.length === 0 || !sheets || !Array.isArray(sheets)) {
@@ -78,19 +82,22 @@ export async function POST(request: NextRequest) {
       regionByName.set(r.name.toLowerCase(), r)
     }
 
-    // 4. Delete existing actuals for this year + all uploaded months
-    for (const mo of months) {
-      const { error: deleteErr } = await admin
-        .from("last_month_actuals")
-        .delete()
-        .eq("year", year)
-        .eq("month", mo)
+    // 4. Delete existing actuals for this year + all uploaded months — only on the first batch
+    //    to avoid wiping data that was just inserted by a previous batch in the same upload.
+    if (batchIndex === 0) {
+      for (const mo of months) {
+        const { error: deleteErr } = await admin
+          .from("last_month_actuals")
+          .delete()
+          .eq("year", year)
+          .eq("month", mo)
 
-      if (deleteErr) {
-        return NextResponse.json(
-          { error: "Failed to clear existing actuals: " + deleteErr.message },
-          { status: 500 }
-        )
+        if (deleteErr) {
+          return NextResponse.json(
+            { error: "Failed to clear existing actuals: " + deleteErr.message },
+            { status: 500 }
+          )
+        }
       }
     }
 
@@ -177,11 +184,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (allRows.length === 0) {
+    if (allRows.length === 0 && batchIndex === 0) {
       return NextResponse.json(
         { error: "No matching data found. Check that tab names match known branches." },
         { status: 400 }
       )
+    }
+
+    // Intermediate batch with no matched sheets — return early with zeroed counters
+    if (allRows.length === 0) {
+      return NextResponse.json({ ok: true, branchesMatched: 0, regionsMatched: 0, skippedTabs })
     }
 
     // 5b. Deduplicate rows – the Excel P&L can have the same description on
@@ -234,6 +246,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 7. Return summary
+    if (!isFinalBatch) {
+      // Intermediate batch — return partial counters; client accumulates them
+      return NextResponse.json({ ok: true, branchesMatched, regionsMatched, skippedTabs })
+    }
+
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     const firstMonth = monthNames[months[0] - 1]
     const lastMonth = monthNames[months[months.length - 1] - 1]
