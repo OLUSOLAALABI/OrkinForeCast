@@ -51,7 +51,7 @@ export function InviteUserDialog({ open, onOpenChange, onSuccess }: Props) {
       }
       setSuccessMessage(
         data.message ||
-          "Invite sent. When they sign in, edit their profile here to set role and region/branch."
+          "Invite sent. The user will receive an email with a link and their temporary password."
       )
       setEmail("")
       onSuccess?.()
@@ -75,7 +75,7 @@ export function InviteUserDialog({ open, onOpenChange, onSuccess }: Props) {
         <DialogHeader>
           <DialogTitle>Invite user</DialogTitle>
           <DialogDescription>
-            Send an email invite. They will get a magic link to sign in. After they sign in, use Edit on this page to set their role, region, and branch.
+            The user will receive an email with an invite link and a temporary password to sign in with.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -87,17 +87,19 @@ export function InviteUserDialog({ open, onOpenChange, onSuccess }: Props) {
               {successMessage}
             </p>
           )}
-          <div className="space-y-2">
-            <Label htmlFor="invite-email">Email</Label>
-            <Input
-              id="invite-email"
-              type="email"
-              placeholder="colleague@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={loading}
-            />
-          </div>
+          {!successMessage && (
+            <div className="space-y-2">
+              <Label htmlFor="invite-email">Email</Label>
+              <Input
+                id="invite-email"
+                type="email"
+                placeholder="colleague@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={loading}
+              />
+            </div>
+          )}
           <DialogFooter>
             <Button
               type="button"

@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { LogOut, User, ChevronDown } from "lucide-react"
+import { LogOut, User, ChevronDown, Lock } from "lucide-react"
 
 type Profile = {
   id: string
@@ -90,6 +90,10 @@ export function DashboardHeader({ profile }: { profile: Profile }) {
           <DropdownMenuItem onClick={() => router.push("/dashboard/settings")}>
             <User className="mr-2 h-4 w-4" />
             Profile
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => router.push("/auth/reset-password")}>
+            <Lock className="mr-2 h-4 w-4" />
+            Change password
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleSignOut} className="text-destructive">

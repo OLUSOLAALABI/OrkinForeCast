@@ -67,7 +67,7 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
         return
       }
 
-      setSuccess(data.message || "Invite sent.")
+      setSuccess(data.message || "Invite sent. The user will receive an email with their temporary password.")
       setEmail("")
       setRole("")
       setRegionId("")
