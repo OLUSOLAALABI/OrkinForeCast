@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -20,7 +20,16 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [fromDashboard, setFromDashboard] = useState(false)
   const router = useRouter()
+
+  useEffect(() => {
+    // If the user navigated here from the dashboard dropdown (they're logged in),
+    // track that so we can redirect back to the dashboard after success.
+    if (typeof window !== "undefined" && document.referrer.includes("/dashboard")) {
+      setFromDashboard(true)
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -48,7 +57,12 @@ export default function ResetPasswordPage() {
 
     setSuccess(true)
     setLoading(false)
-    router.refresh()
+    // If they came from the dashboard, redirect back after a short delay
+    if (fromDashboard) {
+      setTimeout(() => router.push("/dashboard"), 2000)
+    } else {
+      router.refresh()
+    }
   }
 
   if (success) {
@@ -66,13 +80,21 @@ export default function ResetPasswordPage() {
             </div>
             <CardTitle className="text-2xl">Password updated</CardTitle>
             <CardDescription>
-              Your password has been reset. You can now sign in with your new password.
+              {fromDashboard
+                ? "Your password has been updated. Redirecting you back to the dashboard…"
+                : "Your password has been reset. You can now sign in with your new password."}
             </CardDescription>
           </CardHeader>
           <CardFooter>
-            <Button asChild className="w-full">
-              <Link href="/auth/login">Sign in</Link>
-            </Button>
+            {fromDashboard ? (
+              <Button asChild className="w-full">
+                <Link href="/dashboard">Back to dashboard</Link>
+              </Button>
+            ) : (
+              <Button asChild className="w-full">
+                <Link href="/auth/login">Sign in</Link>
+              </Button>
+            )}
           </CardFooter>
         </Card>
       </div>
