@@ -22,6 +22,7 @@ function LoginForm() {
   const searchParams = useSearchParams()
 
   const confirmed = searchParams.get("confirmed") === "1"
+  const invited = searchParams.get("invited") === "true"
 
   useEffect(() => {
     const err = searchParams.get("error")
@@ -65,6 +66,13 @@ function LoginForm() {
         </CardHeader>
         <form onSubmit={handleLogin}>
           <CardContent className="space-y-4">
+            {invited && (
+              <Alert className="border-blue-500/50 bg-blue-500/10 text-blue-700 dark:text-blue-400">
+                <AlertDescription>
+                  Your account is ready. Sign in with your email and the temporary password that was shared with you. You can change your password anytime from your profile menu.
+                </AlertDescription>
+              </Alert>
+            )}
             {confirmed && (
               <Alert className="border-green-500/50 bg-green-500/10 text-green-700 dark:text-green-400">
                 <AlertDescription>Your email is confirmed. Sign in below to go to your dashboard.</AlertDescription>

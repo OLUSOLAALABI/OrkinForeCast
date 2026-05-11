@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { randomBytes } from "crypto"
+
+/** Generates a random 12-character password: letters + digits. */
+function generateTempPassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
+  return Array.from(randomBytes(12))
+    .map((b) => chars[b % chars.length])
+    .join("")
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,7 +48,9 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_APP_URL ||
       request.headers.get("origin") ||
       "http://localhost:3000"
-    const redirectTo = `${appUrl.replace(/\/$/, "")}/auth/callback`
+    // After the invite link is clicked, the callback will sign them out and
+    // redirect to the login page — so the user always signs in with email + password.
+    const redirectTo = `${appUrl.replace(/\/$/, "")}/auth/callback?invited=true`
 
     let admin
     try {
@@ -54,8 +65,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Generate a secure temporary password for the user
+    const tempPassword = generateTempPassword()
+
     const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo,
+      data: { temp_password: tempPassword }, // available in Supabase email template as {{ .Data.temp_password }}
     })
 
     if (error) {
@@ -63,6 +78,11 @@ export async function POST(request: NextRequest) {
         { error: error.message || "Failed to send invite" },
         { status: 400 }
       )
+    }
+
+    // Set the temp password on the newly created user so they can sign in with it
+    if (data?.user?.id) {
+      await admin.auth.admin.updateUserById(data.user.id, { password: tempPassword })
     }
 
     if (role) {
@@ -89,6 +109,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: `Invite sent. ${roleMessage}`,
+      tempPassword,
+      email,
     })
   } catch (e) {
     console.error("Invite error:", e)
