@@ -62,6 +62,8 @@ export default async function ActivityPage() {
   const auditRows = auditLogs ?? []
 
   // Fetch user names from profiles for both uploads and audit logs
+  // Uses a SECURITY DEFINER function so branch users can resolve names
+  // of HQ admins who made edits (profiles RLS would block this).
   const allUserIds = [
     ...new Set([
       ...rows.map((u: { user_id: string }) => u.user_id),
@@ -69,12 +71,12 @@ export default async function ActivityPage() {
     ]),
   ]
   const { data: profilesList } = allUserIds.length > 0
-    ? await supabase.from("profiles").select("id, full_name, email").in("id", allUserIds)
+    ? await supabase.rpc("resolve_user_names", { user_ids: allUserIds })
     : { data: [] }
   const userMap = new Map(
-    (profilesList ?? []).map((p: { id: string; full_name: string | null; email: string }) => [
+    (profilesList ?? []).map((p: { id: string; display_name: string }) => [
       p.id,
-      p.full_name || p.email || "Unknown",
+      p.display_name,
     ])
   )
 
