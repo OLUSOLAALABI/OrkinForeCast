@@ -66,6 +66,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Check if a user with this email already exists
+    const { data: existingUsers } = await admin.auth.admin.listUsers()
+    const alreadyExists = existingUsers?.users?.some(
+      (u) => u.email?.toLowerCase() === email
+    )
+    if (alreadyExists) {
+      return NextResponse.json(
+        { error: "A user with this email already exists. Edit their profile on the Users page to change their role, region, or branch." },
+        { status: 400 }
+      )
+    }
+
     // Generate a secure temporary password for the user
     const tempPassword = generateTempPassword()
 
@@ -73,6 +85,8 @@ export async function POST(request: NextRequest) {
     // inviteUserByEmail triggers handle_new_user() which reads pending_invites
     // to assign role/region/branch to the profile.
     if (role) {
+      // Clean up any orphan rows from previous failed attempts
+      await admin.from("pending_invites").delete().eq("email", email)
       await admin
         .from("pending_invites")
         .insert({
@@ -89,6 +103,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (error) {
+      console.error("inviteUserByEmail error:", error)
       // Clean up pending_invites if user creation failed
       if (role) {
         await admin.from("pending_invites").delete().eq("email", email)
@@ -106,6 +121,25 @@ export async function POST(request: NextRequest) {
         password: tempPassword,
         email_confirm: true,
       })
+
+      // Directly upsert the profile with role/region/branch.
+      // The on_auth_user_created trigger may not fire if Supabase reactivates
+      // a previously deleted user, so we ensure the profile is always correct.
+      if (role) {
+        await admin
+          .from("profiles")
+          .upsert({
+            id: data.user.id,
+            email,
+            full_name: fullName || null,
+            role,
+            region_id: regionId || null,
+            branch_id: branchId || null,
+          }, { onConflict: "id" })
+
+        // Clean up pending_invites since we've set the profile directly
+        await admin.from("pending_invites").delete().eq("email", email)
+      }
     }
 
     const roleMessage =
