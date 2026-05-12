@@ -69,12 +69,30 @@ export async function POST(request: NextRequest) {
     // Generate a secure temporary password for the user
     const tempPassword = generateTempPassword()
 
+    // Insert pending_invites BEFORE creating the user, because
+    // inviteUserByEmail triggers handle_new_user() which reads pending_invites
+    // to assign role/region/branch to the profile.
+    if (role) {
+      await admin
+        .from("pending_invites")
+        .insert({
+          email,
+          role,
+          region_id: regionId || null,
+          branch_id: branchId || null,
+        })
+    }
+
     const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo,
       data: { temp_password: tempPassword, full_name: fullName || null }, // available in Supabase email template as {{ .Data.temp_password }}
     })
 
     if (error) {
+      // Clean up pending_invites if user creation failed
+      if (role) {
+        await admin.from("pending_invites").delete().eq("email", email)
+      }
       return NextResponse.json(
         { error: error.message || "Failed to send invite" },
         { status: 400 }
@@ -88,18 +106,6 @@ export async function POST(request: NextRequest) {
         password: tempPassword,
         email_confirm: true,
       })
-    }
-
-    if (role) {
-      await admin
-        .from("pending_invites")
-        .insert({
-          email,
-          role,
-          region_id: regionId || null,
-          branch_id: branchId || null,
-        })
-      // If insert fails (e.g. migration not run), invite still sent; HQ can set role on Users page
     }
 
     const roleMessage =
