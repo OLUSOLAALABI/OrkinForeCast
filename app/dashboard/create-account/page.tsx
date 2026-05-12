@@ -33,7 +33,7 @@ export default async function CreateAccountPage() {
       <div>
         <h1 className="text-3xl font-bold text-foreground">Create account</h1>
         <p className="text-muted-foreground mt-1">
-          Invite a user by email. Choose HQ Admin, Region Admin, or Branch User. They will get the correct access when they sign in.
+          Add a user by email. Choose HQ Admin, Region Admin, or Branch User. They will receive a temporary password in their email and can sign in immediately.
         </p>
       </div>
 

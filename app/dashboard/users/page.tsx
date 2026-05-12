@@ -3,7 +3,9 @@ import { redirect } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, Shield, Building2, MapPin } from "lucide-react"
 import { UsersTable } from "@/components/dashboard/users-table"
-import { InviteUserButton } from "@/components/dashboard/invite-user-dialog"
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { UserPlus } from "lucide-react"
 
 export default async function UsersPage() {
   const supabase = await createClient()
@@ -106,9 +108,14 @@ export default async function UsersPage() {
         <CardHeader className="flex flex-row items-start justify-between space-y-0 gap-4">
           <div>
             <CardTitle>All Users</CardTitle>
-            <CardDescription>Complete list of registered users. Invite new users or click Edit to change role, region, or branch.</CardDescription>
+            <CardDescription>Complete list of registered users. Create new accounts or click Edit to change role, region, or branch.</CardDescription>
           </div>
-          <InviteUserButton />
+          <Button asChild>
+            <Link href="/dashboard/create-account">
+              <UserPlus className="h-4 w-4 mr-2" />
+              Create account
+            </Link>
+          </Button>
         </CardHeader>
         <CardContent>
           {users && users.length > 0 ? (
