@@ -15,6 +15,7 @@ type Branch = { id: string; name: string; region_id: string }
 
 export function CreateAccountForm({ regions, branches }: { regions: Region[]; branches: Branch[] }) {
   const router = useRouter()
+  const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<"hq_admin" | "region_admin" | "branch_user" | "">("")
   const [regionId, setRegionId] = useState("")
@@ -55,6 +56,7 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: trimmed,
+          full_name: fullName.trim() || null,
           role,
           region_id: role === "hq_admin" ? null : regionId || null,
           branch_id: role === "branch_user" ? branchId || null : null,
@@ -67,7 +69,8 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
         return
       }
 
-      setSuccess(data.message || "Invite sent. The user will receive an email with their temporary password.")
+      setSuccess(data.message || "Account created. The user will receive an email with their temporary password.")
+      setFullName("")
       setEmail("")
       setRole("")
       setRegionId("")
@@ -86,7 +89,7 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
           Create account
         </CardTitle>
         <CardDescription>
-          Enter their email and choose the role (HQ Admin, Region Admin, or Branch User). They will receive an invite and get the right access when they sign in.
+          Enter their email and choose the role (HQ Admin, Region Admin, or Branch User). They will receive an email with a temporary password and can sign in right away.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -159,6 +162,17 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
           )}
 
           <div className="space-y-2">
+            <Label htmlFor="full-name">Full name</Label>
+            <Input
+              id="full-name"
+              type="text"
+              placeholder="Jane Smith"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
               id="email"
@@ -174,12 +188,12 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Sending invite…
+                Creating account…
               </>
             ) : (
               <>
                 <UserPlus className="mr-2 h-4 w-4" />
-                Send invite
+                Create account
               </>
             )}
           </Button>

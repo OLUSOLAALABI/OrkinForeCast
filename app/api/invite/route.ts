@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const fullName = typeof body?.full_name === "string" ? body.full_name.trim() : ""
     const role = body?.role === "hq_admin" || body?.role === "region_admin" || body?.role === "branch_user" ? body.role : null
     const regionId = typeof body?.region_id === "string" ? body.region_id : null
     const branchId = typeof body?.branch_id === "string" ? body.branch_id : null
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
 
     const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo,
-      data: { temp_password: tempPassword }, // available in Supabase email template as {{ .Data.temp_password }}
+      data: { temp_password: tempPassword, full_name: fullName || null }, // available in Supabase email template as {{ .Data.temp_password }}
     })
 
     if (error) {
@@ -80,9 +81,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Set the temp password on the newly created user so they can sign in with it
+    // Set the temp password AND confirm the email immediately so the user can
+    // sign in even if the invite link expires.
     if (data?.user?.id) {
-      await admin.auth.admin.updateUserById(data.user.id, { password: tempPassword })
+      await admin.auth.admin.updateUserById(data.user.id, {
+        password: tempPassword,
+        email_confirm: true,
+      })
     }
 
     if (role) {
@@ -99,18 +104,16 @@ export async function POST(request: NextRequest) {
 
     const roleMessage =
       role === "hq_admin"
-        ? "They will have full HQ Admin access when they sign in."
+        ? "They will have full HQ Admin access."
         : role === "region_admin"
-          ? "They will have Region Admin access for the selected region when they sign in."
+          ? "They will have Region Admin access for the selected region."
           : role === "branch_user"
-            ? "They will have Branch User access for the selected branch when they sign in."
-            : "When they sign in, edit their profile on the Users page to set role, region, and branch."
+            ? "They will have Branch User access for the selected branch."
+            : "Edit their profile on the Users page to set role, region, and branch."
 
     return NextResponse.json({
       success: true,
-      message: `Invite sent. ${roleMessage}`,
-      tempPassword,
-      email,
+      message: `Account created. ${roleMessage} A temporary password has been sent to their email.`,
     })
   } catch (e) {
     console.error("Invite error:", e)

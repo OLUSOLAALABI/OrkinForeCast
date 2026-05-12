@@ -27,7 +27,7 @@ function LoginForm() {
   useEffect(() => {
     const err = searchParams.get("error")
     if (err === "otp_expired" || err === "auth_callback_failed") {
-      setError("Invalid or expired link. Please sign in below or request a new confirmation email.")
+      setError("Your invite link has expired, but your account is still active. Sign in below with your email and the temporary password from your invite email.")
     } else if (err === "auth_failed") {
       setError("Something went wrong. Please try signing in again.")
     }
@@ -69,7 +69,7 @@ function LoginForm() {
             {invited && (
               <Alert className="border-blue-500/50 bg-blue-500/10 text-blue-700 dark:text-blue-400">
                 <AlertDescription>
-                  Your account is ready. Sign in with your email and the temporary password that was shared with you. You can change your password anytime from your profile menu.
+                  Your account is ready. Sign in with your email and the temporary password from your invite email. You can change your password anytime from your profile menu.
                 </AlertDescription>
               </Alert>
             )}
@@ -80,17 +80,7 @@ function LoginForm() {
             )}
             {error && (
               <Alert variant="destructive">
-                <AlertDescription>
-                  {error}
-                  {(searchParams.get("error") === "otp_expired" || searchParams.get("error") === "auth_callback_failed") && (
-                    <>
-                      {" "}
-                      <Link href="/auth/sign-up-success" className="underline font-medium">
-                        Request a new confirmation email
-                      </Link>
-                    </>
-                  )}
-                </AlertDescription>
+                <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
             <div className="space-y-2">
