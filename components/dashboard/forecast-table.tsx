@@ -70,6 +70,11 @@ const BUDGET_ONLY_DESCS = new Set([
   "ULTIPRO COST",
 ])
 
+// Computed subtotal lines — non-editable (sum of children)
+const NON_EDITABLE_SUBTOTALS = new Set([
+  "GROSS CONTRACT REVENUE",
+])
+
 // Template order matching production display order
 export const TEMPLATE_ORDER = [
   "PEST CONTROL REVENUE",
@@ -269,6 +274,7 @@ type ForecastTableProps = {
   onUpdateForecast?: (description: string, month: number, newValue: number) => Promise<void>
   editable?: boolean
   lastMonthActuals?: Map<string, number>
+  editedCells?: Set<string>
 }
 
 type EditingCell = {
@@ -283,6 +289,7 @@ export function ForecastTable({
   onUpdateForecast,
   editable = true,
   lastMonthActuals,
+  editedCells,
 }: ForecastTableProps) {
   const [editingCell, setEditingCell] = useState<EditingCell>(null)
   const [editValue, setEditValue] = useState<string>("")
@@ -535,7 +542,8 @@ export function ForecastTable({
                 {months.map(month => {
                   const f = descForecasts.find(m => m.month === month)
                   const isCurrent = month === currentMonth
-                  const isClickable = editable && onUpdateForecast && f && isLeafDescription(description) && !BUDGET_ONLY_DESCS.has(normDesc(description))
+                  const isClickable = editable && onUpdateForecast && f && isLeafDescription(description) && !BUDGET_ONLY_DESCS.has(normDesc(description)) && !NON_EDITABLE_SUBTOTALS.has(normDesc(description))
+                  const isEdited = f && editedCells?.has(`${description}\t${month}`)
 
                   return (
                     <Fragment key={month}>
@@ -548,7 +556,7 @@ export function ForecastTable({
                           )}
                           onClick={() => isClickable && handleCellClick(description, month, f.forecastValue)}
                         >
-                          <span className="text-xs font-semibold">
+                          <span className={cn("text-xs font-semibold", isEdited && "text-violet-600 dark:text-violet-400")}>
                             {f ? formatCurrency(f.forecastValue) : "-"}
                           </span>
                           {isClickable && (
