@@ -228,6 +228,7 @@ export default function ForecastPage() {
   const supabase = createClient()
   const lastFetchedKeyRef = useRef<string | null>(null)
   const [lastMonthActuals, setLastMonthActuals] = useState<Map<string, number>>(new Map())
+  const [editedCells, setEditedCells] = useState<Set<string>>(new Set())
   const [uploading, setUploading] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -454,11 +455,19 @@ export default function ForecastPage() {
         setRawForecastRows(breakdownRows)
       } else {
         // Single branch view — ~2000 rows, but PostgREST max-rows is 1000, so fetch in 2 pages
-        const [forecastRes1, forecastRes2, actualRes] = await Promise.all([
+        const [forecastRes1, forecastRes2, actualRes, auditRes] = await Promise.all([
           supabase.from("forecasts").select("*").eq("branch_id", selectedBranch).eq("year", currentYear).order("id").range(0, 999),
           supabase.from("forecasts").select("*").eq("branch_id", selectedBranch).eq("year", currentYear).order("id").range(1000, 1999),
-          supabase.from("actuals").select("*").eq("branch_id", selectedBranch).eq("year", currentYear)
+          supabase.from("actuals").select("*").eq("branch_id", selectedBranch).eq("year", currentYear),
+          supabase.from("forecast_audit_log").select("description, month").eq("branch_id", selectedBranch).eq("year", currentYear).limit(5000)
         ])
+
+        // Build set of edited cells from audit log
+        const editedKeys = new Set<string>()
+        for (const entry of auditRes.data ?? []) {
+          editedKeys.add(`${entry.description}\t${entry.month}`)
+        }
+        setEditedCells(editedKeys)
 
         if (forecastRes1.error) throw forecastRes1.error
         const existingForecasts = [...(forecastRes1.data ?? []), ...(forecastRes2.data ?? [])]
@@ -845,6 +854,7 @@ export default function ForecastPage() {
 
     // Log the edit to the audit trail (non-blocking – table may not exist yet)
     if (userId && oldValue !== newValue) {
+      setEditedCells(prev => new Set(prev).add(`${description}\t${month}`))
       supabase
         .from("forecast_audit_log")
         .insert({
@@ -1643,6 +1653,7 @@ export default function ForecastPage() {
                     onUpdateForecast={handleUpdateForecast}
                     editable={selectedBranch !== ALL_BRANCHES_ID}
                     lastMonthActuals={lastMonthActuals}
+                    editedCells={editedCells}
                   />
                 </TabsContent>
               </Tabs>

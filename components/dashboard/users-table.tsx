@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -13,6 +13,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -58,9 +65,28 @@ export function UsersTable({ users, regions, branches, currentUserId }: Props) {
   const [editingUser, setEditingUser] = useState<UserRow | null>(null)
   const [deletingUser, setDeletingUser] = useState<UserRow | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [roleFilter, setRoleFilter] = useState<string>("all")
+
+  const filteredUsers = useMemo(
+    () => roleFilter === "all" ? users : users.filter((u) => u.role === roleFilter),
+    [users, roleFilter]
+  )
 
   return (
     <>
+      <div className="flex items-center gap-2 mb-4">
+        <Select value={roleFilter} onValueChange={setRoleFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Filter by role" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Roles</SelectItem>
+            <SelectItem value="hq_admin">HQ Admin</SelectItem>
+            <SelectItem value="region_admin">Region Admin</SelectItem>
+            <SelectItem value="branch_user">Branch User</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       <Table>
         <TableHeader>
           <TableRow>
@@ -73,7 +99,7 @@ export function UsersTable({ users, regions, branches, currentUserId }: Props) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {users.map((u) => {
+          {filteredUsers.map((u) => {
             const initials =
               u.full_name
                 ?.split(" ")

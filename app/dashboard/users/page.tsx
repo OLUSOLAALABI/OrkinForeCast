@@ -27,7 +27,7 @@ export default async function UsersPage() {
   const { data: users } = await supabase
     .from("profiles")
     .select("*, regions(name), branches(name)")
-    .order("created_at", { ascending: false })
+    .order("full_name", { ascending: true })
 
   // Fetch regions and branches for edit dropdowns
   const { data: regions } = await supabase
