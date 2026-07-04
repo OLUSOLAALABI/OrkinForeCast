@@ -45,6 +45,10 @@ type UserRow = {
   created_at: string
   regions?: { name: string } | null
   branches?: { name: string } | null
+  assigned_branches?: Array<{
+    branch_id: string
+    branches?: { id: string; name: string; region_id: string; regions?: { name: string } | null } | null
+  }>
 }
 
 const roleLabels: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
@@ -130,7 +134,11 @@ export function UsersTable({ users, regions, branches, currentUserId }: Props) {
                   {u.regions?.name ?? <span className="text-muted-foreground">-</span>}
                 </TableCell>
                 <TableCell>
-                  {u.branches?.name ?? <span className="text-muted-foreground">-</span>}
+                  {u.assigned_branches && u.assigned_branches.length > 0 ? (
+                    <span>{u.assigned_branches.map((assignment) => assignment.branches?.name ?? "Unknown branch").join(", ")}</span>
+                  ) : (
+                    u.branches?.name ?? <span className="text-muted-foreground">-</span>
+                  )}
                 </TableCell>
                 <TableCell className="text-muted-foreground">
                   {new Date(u.created_at).toLocaleDateString()}

@@ -5,6 +5,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { LineChart, Building2, MapPin, TrendingUp, AlertCircle } from "lucide-react"
 import Link from "next/link"
 
+type AssignedBranchRow = {
+  branch_id: string
+  branches: { name: string; region_id: string | null }[] | { name: string; region_id: string | null } | null
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -15,13 +20,32 @@ export default async function DashboardPage() {
     .eq("id", user?.id)
     .single()
 
+  const { data: assignedBranchRows } = profile?.role === "branch_user" && user
+    ? await supabase
+      .from("user_branch_access")
+      .select("branch_id, branches(name, region_id)")
+      .eq("user_id", user.id)
+    : { data: [] }
+
+  const assignedBranches = (assignedBranchRows && assignedBranchRows.length > 0)
+    ? assignedBranchRows.map((row) => {
+      const typedRow = row as AssignedBranchRow
+      return {
+        branch_id: typedRow.branch_id,
+        branches: Array.isArray(typedRow.branches) ? (typedRow.branches[0] ?? null) : typedRow.branches ?? null,
+      }
+    })
+    : profile?.role === "branch_user" && profile.branch_id
+      ? [{ branch_id: profile.branch_id, branches: profile.branches ? { name: profile.branches.name, region_id: profile.region_id } : null }]
+      : []
+
   // Fetch stats based on role (branch_user: only their branch)
   const isBranchUser = profile?.role === "branch_user"
-  const userBranchId = profile?.branch_id ?? null
+  const assignedRegionIds = [...new Set(assignedBranches.map((row) => row.branches?.region_id).filter(Boolean))]
 
   let branchesCount: number | null = 1
   if (profile?.role === "branch_user") {
-    branchesCount = 1
+    branchesCount = assignedBranches.length
   } else if (profile?.role === "region_admin") {
     if (profile.region_id) {
       try {
@@ -46,7 +70,7 @@ export default async function DashboardPage() {
 
   let regionsCount: number | null = 1
   if (profile?.role === "branch_user") {
-    regionsCount = 1
+    regionsCount = assignedRegionIds.length || 0
   } else if (profile?.role === "region_admin") {
     regionsCount = 1
   } else if (profile?.role === "hq_admin") {
@@ -60,7 +84,10 @@ export default async function DashboardPage() {
   const MONTHS_PER_YEAR = 12
   const forecastsCount = (branchesCount ?? 0) * MONTHS_PER_YEAR
 
-  const branchUserNeedsAssignment = profile?.role === "branch_user" && !profile?.branch_id
+  const branchUserNeedsAssignment = profile?.role === "branch_user" && assignedBranches.length === 0
+  const branchUserNames = assignedBranches
+    .map((row) => row.branches?.name)
+    .filter((name): name is string => Boolean(name))
 
   return (
     <div className="space-y-6">
@@ -68,8 +95,10 @@ export default async function DashboardPage() {
         <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
         <p className="text-muted-foreground mt-1">
           Welcome back, {profile?.full_name || "User"}.
-          {profile?.role === "branch_user" && profile?.branches?.name ? (
-            <> You&apos;re viewing data for your branch only: <strong>{profile.branches.name}</strong>.</>
+          {profile?.role === "branch_user" && branchUserNames.length === 1 ? (
+            <> You&apos;re viewing data for your branch only: <strong>{branchUserNames[0]}</strong>.</>
+          ) : profile?.role === "branch_user" && branchUserNames.length > 1 ? (
+            <> You have access to <strong>{branchUserNames.length} branches</strong>: {branchUserNames.join(", ")}.</>
           ) : profile?.role === "region_admin" && profile?.regions?.name ? (
             <> You&apos;re viewing data for your region only: <strong>{profile.regions.name}</strong>.</>
           ) : (
@@ -110,7 +139,7 @@ export default async function DashboardPage() {
             <div className="text-2xl font-bold">{forecastsCount || 0}</div>
             <p className="text-xs text-muted-foreground">
               {isBranchUser
-                ? "1 branch × 12 months"
+                ? `${branchesCount ?? 0} ${(branchesCount ?? 0) === 1 ? "branch" : "branches"} × 12 months`
                 : `${branchesCount ?? 0} branches × 12 months`}
             </p>
           </CardContent>
@@ -127,7 +156,7 @@ export default async function DashboardPage() {
             <div className="text-2xl font-bold">{branchesCount || 0}</div>
             <p className="text-xs text-muted-foreground">
               {profile?.role === "branch_user"
-                ? "Your branch"
+                ? (branchesCount ?? 0) === 1 ? "Your branch" : "Your branches"
                 : profile?.role === "region_admin"
                   ? "In your region"
                   : "Under management"}

@@ -46,11 +46,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_lma_company_unique
 -- RLS
 ALTER TABLE public.last_month_actuals ENABLE ROW LEVEL SECURITY;
 
--- All authenticated users can read actuals
+-- Authenticated users can read actuals only within their scope
 CREATE POLICY "authenticated_select_actuals" ON public.last_month_actuals
   FOR SELECT
   TO authenticated
-  USING (true);
+  USING (
+    public.get_user_role() = 'hq_admin' OR
+    (public.get_user_role() = 'region_admin' AND (
+      (region_id IS NOT NULL AND region_id = public.get_user_region_id()) OR
+      (branch_id IS NOT NULL AND branch_id IN (
+        SELECT id FROM public.branches WHERE region_id = public.get_user_region_id()
+      ))
+    )) OR
+    (public.get_user_role() = 'branch_user' AND branch_id IS NOT NULL AND public.user_has_branch_access(branch_id))
+  );
 
 -- Only HQ admins can insert
 CREATE POLICY "hq_admin_insert_actuals" ON public.last_month_actuals

@@ -21,6 +21,11 @@ type Profile = {
   branches?: { name: string } | null
 }
 
+type AssignedBranch = {
+  branch_id: string
+  branches?: { name: string }[] | { name: string } | null
+}
+
 const roleLabels = {
   hq_admin: "Headquarters Admin",
   region_admin: "Region Admin",
@@ -29,6 +34,7 @@ const roleLabels = {
 
 export default function SettingsPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [assignedBranches, setAssignedBranches] = useState<AssignedBranch[]>([])
   const [fullName, setFullName] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -50,6 +56,15 @@ export default function SettingsPage() {
       if (data) {
         setProfile(data)
         setFullName(data.full_name || "")
+      }
+
+      const { data: assignments } = await supabase
+        .from("user_branch_access")
+        .select("branch_id, branches(name)")
+        .eq("user_id", user.id)
+
+      if (assignments) {
+        setAssignedBranches(assignments as AssignedBranch[])
       }
       setLoading(false)
     }
@@ -85,6 +100,19 @@ export default function SettingsPage() {
       </div>
     )
   }
+
+  const effectiveAssignedBranches = assignedBranches.length > 0
+    ? assignedBranches.map((assignment) => ({
+      branch_id: assignment.branch_id,
+      branches: Array.isArray(assignment.branches) ? (assignment.branches[0] ?? null) : assignment.branches ?? null,
+    }))
+    : profile?.branch_id && profile?.branches
+      ? [{ branch_id: profile.branch_id, branches: profile.branches }]
+      : []
+
+  const branchNames = effectiveAssignedBranches
+    .map((assignment) => assignment.branches?.name)
+    .filter((name): name is string => Boolean(name))
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -152,11 +180,11 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {profile?.role === "branch_user" && !profile?.branch_id && (
+      {profile?.role === "branch_user" && effectiveAssignedBranches.length === 0 && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Your branch has not been assigned yet. You need a branch assignment to view forecasts and activity.
+            Your branch access has not been assigned yet. You need at least one assigned branch to view forecasts and activity.
             Contact your administrator to assign your branch.
           </AlertDescription>
         </Alert>
@@ -191,17 +219,17 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {(profile?.role === "branch_user" || profile?.branches) && (
+          {(profile?.role === "branch_user" || branchNames.length > 0 || profile?.branches) && (
             <div className="flex items-center justify-between py-3">
               <div>
-                <p className="font-medium">Branch</p>
-                <p className="text-sm text-muted-foreground">Your assigned branch</p>
+                <p className="font-medium">Branch Access</p>
+                <p className="text-sm text-muted-foreground">Your assigned branches</p>
               </div>
               <div className="flex items-center gap-2">
-                {profile?.branches ? (
+                {branchNames.length > 0 ? (
                   <>
                     <Building2 className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{profile.branches.name}</span>
+                    <span className="text-sm text-right">{branchNames.join(", ")}</span>
                   </>
                 ) : (
                   <span className="text-sm text-muted-foreground">Not assigned</span>

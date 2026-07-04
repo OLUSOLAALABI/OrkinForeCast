@@ -22,7 +22,37 @@ type Profile = {
     region_id: string | null
 }
 
-const ALL_BRANCHES_ID = "__all__"
+type BranchAccessRow = {
+    branch_id: string
+    branches: {
+        id: string
+        name: string
+        code: string
+        region_id: string
+    }[] | {
+        id: string
+        name: string
+        code: string
+        region_id: string
+    } | null
+}
+
+function normalizeAssignedBranches(rows: BranchAccessRow[]): Branch[] {
+    const byId = new Map<string, Branch>()
+
+    rows.forEach((row) => {
+        const branch = Array.isArray(row.branches) ? (row.branches[0] ?? null) : row.branches
+        if (!branch) return
+        byId.set(branch.id, {
+            id: branch.id,
+            name: branch.name,
+            code: branch.code,
+            region_id: branch.region_id,
+        })
+    })
+
+    return [...byId.values()]
+}
 
 export default function ActualsPage() {
     const [profile, setProfile] = useState<Profile | null>(null)
@@ -47,21 +77,27 @@ export default function ActualsPage() {
 
                 setProfile(p)
 
-                let branchesQuery = supabase.from("branches").select("id, name, code, region_id").order("name")
+                const res = await fetch("/api/branches", { cache: "no-store" })
+                const { branches: branchData } = res.ok ? await res.json().catch(() => ({})) : { branches: [] }
+                let availableBranches = Array.isArray(branchData) ? branchData : []
 
-                if (p?.role === "branch_user" && p.branch_id) {
-                    setSelectedBranch(p.branch_id)
-                } else if (p?.role === "region_admin" && p.region_id) {
-                    branchesQuery = branchesQuery.eq("region_id", p.region_id)
+                if (p?.role === "branch_user" && availableBranches.length === 0) {
+                    const { data: accessRows } = await supabase
+                        .from("user_branch_access")
+                        .select("branch_id, branches(id, name, code, region_id)")
+                        .eq("user_id", user.id)
+
+                    availableBranches = normalizeAssignedBranches((accessRows ?? []) as BranchAccessRow[])
                 }
 
-                const { data: b } = await branchesQuery
-                setBranches(b || [])
+                setBranches(availableBranches)
 
-                if (p?.role === "hq_admin" || p?.role === "region_admin") {
-                    if (b && b.length > 0) {
-                        setSelectedBranch(b[0].id)
-                    }
+                if (availableBranches.length > 0) {
+                    setSelectedBranch(availableBranches[0].id)
+                } else if (p?.role === "branch_user" && p.branch_id) {
+                    setSelectedBranch(p.branch_id)
+                } else {
+                    setSelectedBranch("")
                 }
             } catch (err) {
                 console.error("Error fetching profile:", err)
@@ -96,7 +132,7 @@ export default function ActualsPage() {
                     </p>
                 </div>
 
-                {(!isBranchUser && branches.length > 0) && (
+                {((!isBranchUser || branches.length > 1) && branches.length > 0) && (
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 max-w-sm">
                         <Label htmlFor="branch-select" className="text-sm font-medium whitespace-nowrap">
                             Reporting for Branch:

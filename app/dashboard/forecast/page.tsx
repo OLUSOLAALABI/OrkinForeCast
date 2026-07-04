@@ -43,6 +43,41 @@ type Profile = {
   region_id: string | null
 }
 
+type BranchAccessRow = {
+  branch_id: string
+  branches: {
+    id: string
+    name: string
+    code: string
+    region_id: string
+    regions?: { name: string }[] | { name: string } | null
+  }[] | {
+    id: string
+    name: string
+    code: string
+    region_id: string
+    regions?: { name: string }[] | { name: string } | null
+  } | null
+}
+
+function normalizeAssignedBranches(rows: BranchAccessRow[]): Branch[] {
+  const byId = new Map<string, Branch>()
+
+  rows.forEach((row) => {
+    const branch = Array.isArray(row.branches) ? (row.branches[0] ?? null) : row.branches
+    if (!branch) return
+    byId.set(branch.id, {
+      id: branch.id,
+      name: branch.name,
+      code: branch.code,
+      region_id: branch.region_id,
+      regions: Array.isArray(branch.regions) ? (branch.regions[0] ?? null) : branch.regions ?? null,
+    })
+  })
+
+  return [...byId.values()]
+}
+
 const ALL_BRANCHES_ID = "__all__" // HQ/region summary view (sum of forecasts from all branches)
 const ALL_REGIONS_ID = "__all_regions__" // HQ view: all regions (HQ total); Select cannot use ""
 
@@ -300,12 +335,13 @@ export default function ForecastPage() {
   const years = [2024, 2025, 2026, 2027, 2028]
   const months = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: getShortMonthName(i + 1) }))
 
-  // When profile loads, branch users get their branch auto-selected; others get branch list
+  // When profile loads, fetch the branches this user is allowed to access.
   useEffect(() => {
     const fetchData = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       setUserId(user.id)
+      setNeedsBranchAssignment(false)
 
       const { data: profileData } = await supabase
         .from("profiles")
@@ -316,9 +352,28 @@ export default function ForecastPage() {
       if (profileData) {
         setProfile(profileData)
 
+        // Use API for branches to avoid RLS issues and to support explicit multi-branch assignments.
+        const res = await fetch("/api/branches", { cache: "no-store" })
+        const { branches: branchData } = res.ok ? await res.json().catch(() => ({})) : { branches: null }
+        let availableBranches = Array.isArray(branchData) ? branchData : []
+
         if (profileData.role === "branch_user") {
-          // Branch users always see their assigned branch — no selector
-          if (profileData.branch_id) {
+          if (availableBranches.length === 0) {
+            const { data: accessRows } = await supabase
+              .from("user_branch_access")
+              .select("branch_id, branches(id, name, code, region_id, regions(name))")
+              .eq("user_id", user.id)
+
+            availableBranches = normalizeAssignedBranches((accessRows ?? []) as BranchAccessRow[])
+          }
+
+          setBranches(availableBranches)
+
+          if (branchFromUrl && availableBranches.some((b: Branch) => b.id === branchFromUrl)) {
+            setSelectedBranch(branchFromUrl)
+          } else if (availableBranches.length > 0) {
+            setSelectedBranch(availableBranches[0].id)
+          } else if (profileData.branch_id) {
             setSelectedBranch(profileData.branch_id)
           } else {
             setNeedsBranchAssignment(true)
@@ -334,12 +389,9 @@ export default function ForecastPage() {
           setSelectedBranch(ALL_BRANCHES_ID)
         }
 
-        // Use API for branches to avoid RLS issues (region admin may not get branches via client)
-        const res = await fetch("/api/branches")
-        const { branches: branchData } = res.ok ? await res.json().catch(() => ({})) : { branches: null }
-        if (branchData && Array.isArray(branchData)) {
-          setBranches(branchData)
-          if (branchFromUrl && branchData.some((b: Branch) => b.id === branchFromUrl)) {
+        if (availableBranches.length > 0) {
+          setBranches(availableBranches)
+          if (branchFromUrl && availableBranches.some((b: Branch) => b.id === branchFromUrl)) {
             setSelectedBranch(branchFromUrl)
           }
         } else if (profileData.role === "hq_admin") {
@@ -360,6 +412,11 @@ export default function ForecastPage() {
     }
     fetchData()
   }, [supabase, branchFromUrl])
+
+  const showBranchSelector = branches.length > 0 && (profile?.role !== "branch_user" || branches.length > 1)
+  const branchSelectorValue = profile?.role === "branch_user"
+    ? (branches.some((branch) => branch.id === selectedBranch) ? selectedBranch : branches[0]?.id ?? "")
+    : selectedBranch || ALL_BRANCHES_ID
 
   const loadForecasts = useCallback(async () => {
     if (!selectedBranch) return
@@ -1199,15 +1256,17 @@ export default function ForecastPage() {
               </SelectContent>
             </Select>
           )}
-          {profile?.role !== "branch_user" && branches.length > 0 && (
-            <Select value={selectedBranch || ALL_BRANCHES_ID} onValueChange={(v) => { setSelectedBranch(v); if (v !== ALL_BRANCHES_ID) setSelectedRegionId(ALL_REGIONS_ID) }}>
+          {showBranchSelector && (
+            <Select value={branchSelectorValue} onValueChange={(v) => { setSelectedBranch(v); if (v !== ALL_BRANCHES_ID) setSelectedRegionId(ALL_REGIONS_ID) }}>
               <SelectTrigger className="w-full sm:w-[260px]">
                 <SelectValue placeholder="Select branch" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL_BRANCHES_ID}>
-                  {profile?.role === "region_admin" ? "All branches in region (summary)" : "All branches (summary)"}
-                </SelectItem>
+                {profile?.role !== "branch_user" && (
+                  <SelectItem value={ALL_BRANCHES_ID}>
+                    {profile?.role === "region_admin" ? "All branches in region (summary)" : "All branches (summary)"}
+                  </SelectItem>
+                )}
                 {(() => {
                   const byRegion = new Map<string, Branch[]>()
                   branches.forEach((b) => {
