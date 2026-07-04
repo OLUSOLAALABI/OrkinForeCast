@@ -29,6 +29,20 @@ export default async function ActivityPage() {
 
   if (!profile) redirect("/auth/login")
 
+  const { data: branchAccessRows } = profile.role === "branch_user"
+    ? await supabase
+      .from("user_branch_access")
+      .select("branch_id")
+      .eq("user_id", user.id)
+    : { data: [] }
+
+  const assignedBranchIds = [
+    ...new Set([
+      ...(branchAccessRows ?? []).map((row) => row.branch_id),
+      ...(profile.branch_id ? [profile.branch_id] : []),
+    ].filter(Boolean))
+  ]
+
   // Fetch uploads with branch name (RLS scopes by role)
   let query = supabase
     .from("uploads")
@@ -36,8 +50,10 @@ export default async function ActivityPage() {
     .order("created_at", { ascending: false })
     .limit(100)
 
-  if (profile.role === "branch_user" && profile.branch_id) {
-    query = query.eq("branch_id", profile.branch_id)
+  if (profile.role === "branch_user") {
+    if (assignedBranchIds.length > 0) {
+      query = query.in("branch_id", assignedBranchIds)
+    }
   } else if (profile.role === "region_admin" && profile.region_id) {
     const { data: regionBranches } = await supabase
       .from("branches")
@@ -49,7 +65,9 @@ export default async function ActivityPage() {
     }
   }
 
-  const { data: uploads } = await query
+  const { data: uploads } = profile.role === "branch_user" && assignedBranchIds.length === 0
+    ? { data: [] }
+    : await query
   const rows = uploads ?? []
 
   // Fetch user names from profiles for uploads
@@ -59,7 +77,7 @@ export default async function ActivityPage() {
   const { data: profilesList } = allUserIds.length > 0
     ? await supabase.rpc("resolve_user_names", { user_ids: allUserIds })
     : { data: [] }
-  const userMap = new Map(
+  const userMap = new Map<string, string>(
     (profilesList ?? []).map((p: { id: string; display_name: string }) => [
       p.id,
       p.display_name,

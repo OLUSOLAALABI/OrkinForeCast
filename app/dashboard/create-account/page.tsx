@@ -2,6 +2,13 @@ import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { CreateAccountForm } from "./create-account-form"
 
+type BranchRow = {
+  id: string
+  name: string
+  region_id: string
+  regions: { name: string }[] | { name: string } | null
+}
+
 export default async function CreateAccountPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -25,8 +32,18 @@ export default async function CreateAccountPage() {
 
   const { data: branches } = await supabase
     .from("branches")
-    .select("id, name, region_id")
+    .select("id, name, region_id, regions(name)")
     .order("name")
+
+  const normalizedBranches = (branches ?? []).map((branch) => {
+    const row = branch as BranchRow
+    return {
+      id: row.id,
+      name: row.name,
+      region_id: row.region_id,
+      regions: Array.isArray(row.regions) ? (row.regions[0] ?? null) : row.regions ?? null,
+    }
+  })
 
   return (
     <div className="space-y-6">
@@ -37,7 +54,7 @@ export default async function CreateAccountPage() {
         </p>
       </div>
 
-      <CreateAccountForm regions={regions ?? []} branches={branches ?? []} />
+      <CreateAccountForm regions={regions ?? []} branches={normalizedBranches} />
     </div>
   )
 }

@@ -24,6 +24,7 @@ type Profile = {
   branch_id: string | null
   regions?: { name: string } | null
   branches?: { name: string } | null
+  assignedBranchNames?: string[]
 }
 
 const roleLabels = {
@@ -55,7 +56,9 @@ export function DashboardHeader({ profile }: { profile: Profile }) {
       ? "Headquarters"
       : profile.role === "region_admin"
         ? (profile.regions?.name ?? "Region")
-        : (profile.branches?.name ?? "Branch")
+        : (profile.assignedBranchNames && profile.assignedBranchNames.length > 1
+            ? `${profile.assignedBranchNames.length} branches`
+            : profile.assignedBranchNames?.[0] ?? profile.branches?.name ?? "Branch")
 
   return (
     <header className="h-16 border-b border-border bg-card px-6 flex items-center justify-between">

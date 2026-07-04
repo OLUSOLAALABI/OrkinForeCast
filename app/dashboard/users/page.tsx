@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { redirect } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, Shield, Building2, MapPin } from "lucide-react"
@@ -6,6 +7,19 @@ import { UsersTable } from "@/components/dashboard/users-table"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { UserPlus } from "lucide-react"
+
+type BranchAssignmentRow = {
+  user_id: string
+  branch_id: string
+  branches: { id: string; name: string; region_id: string; regions: { name: string }[] | { name: string } | null }[] | { id: string; name: string; region_id: string; regions: { name: string }[] | { name: string } | null } | null
+}
+
+type BranchRow = {
+  id: string
+  name: string
+  region_id: string
+  regions: { name: string }[] | { name: string } | null
+}
 
 export default async function UsersPage() {
   const supabase = await createClient()
@@ -29,6 +43,11 @@ export default async function UsersPage() {
     .select("*, regions(name), branches(name)")
     .order("full_name", { ascending: true })
 
+  const admin = createAdminClient()
+  const { data: branchAccessRows } = await admin
+    .from("user_branch_access")
+    .select("user_id, branch_id, branches(id, name, region_id, regions(name))")
+
   // Fetch regions and branches for edit dropdowns
   const { data: regions } = await supabase
     .from("regions")
@@ -38,6 +57,40 @@ export default async function UsersPage() {
     .from("branches")
     .select("id, name, region_id, regions(name)")
     .order("name")
+
+  const assignedBranchesByUser = new Map<string, Array<{ branch_id: string; branches?: { id: string; name: string; region_id: string; regions?: { name: string } | null } | null }>>()
+  for (const rawRow of branchAccessRows ?? []) {
+    const row = rawRow as BranchAssignmentRow
+    const normalizedBranch = Array.isArray(row.branches) ? (row.branches[0] ?? null) : row.branches ?? null
+    const existing = assignedBranchesByUser.get(row.user_id) ?? []
+    existing.push({
+      branch_id: row.branch_id,
+      branches: normalizedBranch
+        ? {
+            id: normalizedBranch.id,
+            name: normalizedBranch.name,
+            region_id: normalizedBranch.region_id,
+            regions: Array.isArray(normalizedBranch.regions) ? (normalizedBranch.regions[0] ?? null) : normalizedBranch.regions ?? null,
+          }
+        : null,
+    })
+    assignedBranchesByUser.set(row.user_id, existing)
+  }
+
+  const normalizedBranches = (branches ?? []).map((branch) => {
+    const row = branch as BranchRow
+    return {
+      id: row.id,
+      name: row.name,
+      region_id: row.region_id,
+      regions: Array.isArray(row.regions) ? (row.regions[0] ?? null) : row.regions ?? null,
+    }
+  })
+
+  const usersWithAssignments = (users ?? []).map((userRow) => ({
+    ...userRow,
+    assigned_branches: assignedBranchesByUser.get(userRow.id) ?? [],
+  }))
 
   // Calculate stats
   const totalUsers = users?.length || 0
@@ -118,11 +171,11 @@ export default async function UsersPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {users && users.length > 0 ? (
+          {usersWithAssignments.length > 0 ? (
             <UsersTable
-              users={users}
+              users={usersWithAssignments}
               regions={regions ?? []}
-              branches={branches ?? []}
+              branches={normalizedBranches}
               currentUserId={user.id}
             />
           ) : (

@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -11,7 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2, UserPlus } from "lucide-react"
 
 type Region = { id: string; name: string }
-type Branch = { id: string; name: string; region_id: string }
+type Branch = { id: string; name: string; region_id: string; regions?: { name: string } | null }
 
 export function CreateAccountForm({ regions, branches }: { regions: Region[]; branches: Branch[] }) {
   const router = useRouter()
@@ -19,12 +20,28 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<"hq_admin" | "region_admin" | "branch_user" | "">("")
   const [regionId, setRegionId] = useState("")
-  const [branchId, setBranchId] = useState("")
+  const [branchIds, setBranchIds] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  const filteredBranches = regionId ? branches.filter((b) => b.region_id === regionId) : []
+  const branchesByRegion = branches.reduce((groups, branch) => {
+    const label = branch.regions?.name ?? "Other"
+    const existing = groups.get(label) ?? []
+    existing.push(branch)
+    groups.set(label, existing)
+    return groups
+  }, new Map<string, Branch[]>())
+
+  const toggleBranch = (branchId: string, checked: boolean | "indeterminate") => {
+    setBranchIds((current) => {
+      if (checked === true) {
+        return current.includes(branchId) ? current : [...current, branchId]
+      }
+
+      return current.filter((value) => value !== branchId)
+    })
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -37,12 +54,12 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
       setError("Please select a role")
       return
     }
-    if ((role === "region_admin" || role === "branch_user") && !regionId) {
+    if (role === "region_admin" && !regionId) {
       setError("Please select a region")
       return
     }
-    if (role === "branch_user" && !branchId) {
-      setError("Please select a branch for Branch User")
+    if (role === "branch_user" && branchIds.length === 0) {
+      setError("Please select at least one branch for Branch User")
       return
     }
 
@@ -58,8 +75,8 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
           email: trimmed,
           full_name: fullName.trim() || null,
           role,
-          region_id: role === "hq_admin" ? null : regionId || null,
-          branch_id: role === "branch_user" ? branchId || null : null,
+          region_id: role === "region_admin" ? regionId || null : null,
+          branch_ids: role === "branch_user" ? branchIds : [],
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -74,7 +91,7 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
       setEmail("")
       setRole("")
       setRegionId("")
-      setBranchId("")
+      setBranchIds([])
       router.refresh()
     } finally {
       setLoading(false)
@@ -107,7 +124,11 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
 
           <div className="space-y-2">
             <Label htmlFor="role">Role</Label>
-            <Select value={role} onValueChange={(v) => { setRole(v as "hq_admin" | "region_admin" | "branch_user" | ""); setRegionId(""); setBranchId("") }}>
+            <Select value={role} onValueChange={(v) => {
+              setRole(v as "hq_admin" | "region_admin" | "branch_user" | "")
+              setRegionId("")
+              setBranchIds([])
+            }}>
               <SelectTrigger id="role">
                 <SelectValue placeholder="Select role" />
               </SelectTrigger>
@@ -119,16 +140,16 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
                   Region Admin — access to one region and its branches
                 </SelectItem>
                 <SelectItem value="branch_user">
-                  Branch User — access to one branch only
+                  Branch User — access to one or more specific branches
                 </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {(role === "region_admin" || role === "branch_user") && (
+          {role === "region_admin" && (
             <div className="space-y-2">
               <Label htmlFor="region">Region</Label>
-              <Select value={regionId} onValueChange={(v) => { setRegionId(v); setBranchId("") }}>
+              <Select value={regionId} onValueChange={setRegionId}>
                 <SelectTrigger id="region">
                   <SelectValue placeholder="Select region" />
                 </SelectTrigger>
@@ -143,21 +164,30 @@ export function CreateAccountForm({ regions, branches }: { regions: Region[]; br
             </div>
           )}
 
-          {role === "branch_user" && regionId && (
+          {role === "branch_user" && (
             <div className="space-y-2">
-              <Label htmlFor="branch">Branch</Label>
-              <Select value={branchId} onValueChange={setBranchId}>
-                <SelectTrigger id="branch">
-                  <SelectValue placeholder="Select branch" />
-                </SelectTrigger>
-                <SelectContent>
-                  {filteredBranches.map((b) => (
-                    <SelectItem key={b.id} value={b.id}>
-                      {b.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Assigned Branches</Label>
+              <div className="max-h-72 space-y-4 overflow-y-auto rounded-md border border-border p-3">
+                {[...branchesByRegion.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([regionName, regionBranches]) => (
+                  <div key={regionName} className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{regionName}</p>
+                    <div className="space-y-2">
+                      {regionBranches.map((branch) => (
+                        <label key={branch.id} className="flex items-center gap-3 text-sm">
+                          <Checkbox
+                            checked={branchIds.includes(branch.id)}
+                            onCheckedChange={(checked) => toggleBranch(branch.id, checked)}
+                          />
+                          <span>{branch.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Branch users can be assigned one or more specific branches under a single account.
+              </p>
             </div>
           )}
 

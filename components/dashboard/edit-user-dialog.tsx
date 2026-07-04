@@ -10,13 +10,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -34,6 +33,10 @@ type UserRow = {
   branch_id: string | null
   regions?: { name: string } | null
   branches?: { name: string } | null
+  assigned_branches?: Array<{
+    branch_id: string
+    branches?: { id: string; name: string; region_id: string; regions?: { name: string } | null } | null
+  }>
 }
 
 type Props = {
@@ -47,7 +50,7 @@ type Props = {
 export function EditUserDialog({ user, regions, branches, open, onOpenChange }: Props) {
   const [role, setRole] = useState(user.role)
   const [regionId, setRegionId] = useState(user.region_id ?? "")
-  const [branchId, setBranchId] = useState(user.branch_id ?? "")
+  const [branchIds, setBranchIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -55,31 +58,51 @@ export function EditUserDialog({ user, regions, branches, open, onOpenChange }: 
     if (open) {
       setRole(user.role)
       setRegionId(user.region_id ?? "")
-      setBranchId(user.branch_id ?? "")
+      setBranchIds(
+        user.assigned_branches && user.assigned_branches.length > 0
+          ? user.assigned_branches.map((assignment) => assignment.branch_id)
+          : user.branch_id
+            ? [user.branch_id]
+            : []
+      )
       setError(null)
     }
   }, [open, user])
 
-  const filteredBranches = regionId
-    ? branches.filter((b) => b.region_id === regionId)
-    : []
+  const branchesByRegion = branches.reduce((groups, branch) => {
+    const regionName = branch.regions?.name ?? "Other"
+    const existing = groups.get(regionName) ?? []
+    existing.push(branch)
+    groups.set(regionName, existing)
+    return groups
+  }, new Map<string, Branch[]>())
+
+  const toggleBranch = (branchId: string, checked: boolean | "indeterminate") => {
+    setBranchIds((current) => {
+      if (checked === true) {
+        return current.includes(branchId) ? current : [...current, branchId]
+      }
+
+      return current.filter((value) => value !== branchId)
+    })
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if ((role === "region_admin" || role === "branch_user") && !regionId) {
+    if (role === "region_admin" && !regionId) {
       setError("Select a region for this role")
       return
     }
-    if (role === "branch_user" && !branchId) {
-      setError("Select a branch for branch user")
+    if (role === "branch_user" && branchIds.length === 0) {
+      setError("Select at least one branch for Branch User")
       return
     }
     setSaving(true)
     setError(null)
     const result = await updateUserProfile(user.id, {
       role,
-      region_id: role === "hq_admin" ? null : regionId || null,
-      branch_id: role === "branch_user" ? branchId || null : null,
+      region_id: role === "region_admin" ? regionId || null : null,
+      branch_ids: role === "branch_user" ? branchIds : [],
     })
     setSaving(false)
     if (result.error) {
@@ -104,7 +127,15 @@ export function EditUserDialog({ user, regions, branches, open, onOpenChange }: 
           )}
           <div className="space-y-2">
             <Label>Role</Label>
-            <Select value={role} onValueChange={setRole}>
+            <Select value={role} onValueChange={(value) => {
+              setRole(value)
+              if (value !== "region_admin") {
+                setRegionId("")
+              }
+              if (value !== "branch_user") {
+                setBranchIds([])
+              }
+            }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -115,37 +146,46 @@ export function EditUserDialog({ user, regions, branches, open, onOpenChange }: 
               </SelectContent>
             </Select>
           </div>
-          {(role === "region_admin" || role === "branch_user") && (
-            <>
-              <div className="space-y-2">
-                <Label>Region</Label>
-                <Select value={regionId} onValueChange={(v) => { setRegionId(v); setBranchId("") }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select region" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {regions.map((r) => (
-                      <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {role === "branch_user" && (
-                <div className="space-y-2">
-                  <Label>Branch</Label>
-                  <Select value={branchId} onValueChange={setBranchId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select branch" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {filteredBranches.map((b) => (
-                        <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+          {role === "region_admin" && (
+            <div className="space-y-2">
+              <Label>Region</Label>
+              <Select value={regionId} onValueChange={setRegionId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select region" />
+                </SelectTrigger>
+                <SelectContent>
+                  {regions.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {role === "branch_user" && (
+            <div className="space-y-2">
+              <Label>Assigned Branches</Label>
+              <div className="max-h-64 space-y-4 overflow-y-auto rounded-md border border-border p-3">
+                {[...branchesByRegion.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([regionName, regionBranches]) => (
+                  <div key={regionName} className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{regionName}</p>
+                    <div className="space-y-2">
+                      {regionBranches.map((branch) => (
+                        <label key={branch.id} className="flex items-center gap-3 text-sm">
+                          <Checkbox
+                            checked={branchIds.includes(branch.id)}
+                            onCheckedChange={(checked) => toggleBranch(branch.id, checked)}
+                          />
+                          <span>{branch.name}</span>
+                        </label>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Branch users can be assigned one or more specific branches.
+              </p>
+            </div>
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

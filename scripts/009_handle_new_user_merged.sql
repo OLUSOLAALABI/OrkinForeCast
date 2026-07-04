@@ -56,6 +56,12 @@ BEGIN
     region_id = COALESCE(EXCLUDED.region_id, public.profiles.region_id),
     branch_id = COALESCE(EXCLUDED.branch_id, public.profiles.branch_id);
 
+  IF v_branch_id IS NOT NULL THEN
+    INSERT INTO public.user_branch_access (user_id, branch_id)
+    VALUES (NEW.id, v_branch_id)
+    ON CONFLICT (user_id, branch_id) DO NOTHING;
+  END IF;
+
   RETURN NEW;
 END;
 $$;

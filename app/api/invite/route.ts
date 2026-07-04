@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { applyUserAccessScope, normalizeBranchIds } from "@/lib/user-branch-access"
 import { randomBytes } from "crypto"
 
 /** Generates a random 12-character password: letters + digits. */
@@ -43,7 +44,24 @@ export async function POST(request: NextRequest) {
     const fullName = typeof body?.full_name === "string" ? body.full_name.trim() : ""
     const role = body?.role === "hq_admin" || body?.role === "region_admin" || body?.role === "branch_user" ? body.role : null
     const regionId = typeof body?.region_id === "string" ? body.region_id : null
-    const branchId = typeof body?.branch_id === "string" ? body.branch_id : null
+    const branchIds = role === "branch_user"
+      ? normalizeBranchIds(body?.branch_ids ?? body?.branch_id)
+      : []
+    const primaryBranchId = branchIds[0] ?? null
+
+    if (role === "region_admin" && !regionId) {
+      return NextResponse.json(
+        { error: "Region is required for Region Admin" },
+        { status: 400 }
+      )
+    }
+
+    if (role === "branch_user" && branchIds.length === 0) {
+      return NextResponse.json(
+        { error: "Select at least one branch for Branch User" },
+        { status: 400 }
+      )
+    }
 
     const appUrl =
       process.env.NEXT_PUBLIC_APP_URL ||
@@ -93,7 +111,7 @@ export async function POST(request: NextRequest) {
           email,
           role,
           region_id: regionId || null,
-          branch_id: branchId || null,
+          branch_id: primaryBranchId,
         })
     }
 
@@ -132,10 +150,15 @@ export async function POST(request: NextRequest) {
             id: data.user.id,
             email,
             full_name: fullName || null,
-            role,
-            region_id: regionId || null,
-            branch_id: branchId || null,
           }, { onConflict: "id" })
+
+        await applyUserAccessScope(
+          supabase,
+          data.user.id,
+          role,
+          regionId || null,
+          branchIds
+        )
 
         // Clean up pending_invites since we've set the profile directly
         await admin.from("pending_invites").delete().eq("email", email)
@@ -148,7 +171,7 @@ export async function POST(request: NextRequest) {
         : role === "region_admin"
           ? "They will have Region Admin access for the selected region."
           : role === "branch_user"
-            ? "They will have Branch User access for the selected branch."
+            ? `They will have Branch User access for ${branchIds.length} assigned ${branchIds.length === 1 ? "branch" : "branches"}.`
             : "Edit their profile on the Users page to set role, region, and branch."
 
     return NextResponse.json({

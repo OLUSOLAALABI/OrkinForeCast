@@ -28,7 +28,7 @@ export default async function BranchesPage({ searchParams }: Props) {
   }
 
   // Use admin client for region admin to bypass RLS (ensures branches load when grouped under regions)
-  let branches: { id: string; name: string; region_id: string; regions?: { name: string } | null }[] = []
+  let branches: { id: string; name: string; code: string; region_id: string; regions?: { name: string } | null }[] = []
   if (profile?.role === "region_admin" && profile.region_id) {
     try {
       const admin = createAdminClient()

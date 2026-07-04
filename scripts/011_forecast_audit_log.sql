@@ -53,11 +53,7 @@ CREATE POLICY "branch_user_select_audit_log" ON public.forecast_audit_log
   FOR SELECT
   TO authenticated
   USING (
-    EXISTS (
-      SELECT 1 FROM public.profiles
-      WHERE profiles.id = auth.uid()
-      AND profiles.branch_id = forecast_audit_log.branch_id
-    )
+    public.user_has_branch_access(forecast_audit_log.branch_id)
   );
 
 -- Any authenticated user can insert audit log entries (the app controls when)

@@ -8,5 +8,5 @@ CREATE POLICY "branches_select" ON public.branches FOR SELECT USING (
   auth.uid() IS NULL OR
   public.get_user_role() = 'hq_admin' OR
   (public.get_user_role() = 'region_admin' AND region_id = public.get_user_region_id()) OR
-  (public.get_user_role() = 'branch_user' AND id = public.get_user_branch_id())
+  (public.get_user_role() = 'branch_user' AND public.user_has_branch_access(id))
 );
