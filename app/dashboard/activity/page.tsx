@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge"
 import { History, FileSpreadsheet, Pencil } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ForecastAuditTable } from "@/components/dashboard/forecast-audit-table"
+import { ForecastVerificationStatusTable } from "@/components/dashboard/forecast-verification-status-table"
+import { ForecastVerificationHistoryTable } from "@/components/dashboard/forecast-verification-history-table"
 
 export default async function ActivityPage() {
   const supabase = await createClient()
@@ -99,6 +101,10 @@ export default async function ActivityPage() {
             <Pencil className="h-4 w-4" />
             Forecast Changes
           </TabsTrigger>
+          <TabsTrigger value="verification" className="flex items-center gap-2">
+            <History className="h-4 w-4" />
+            Forecast Verification
+          </TabsTrigger>
           <TabsTrigger value="upload-history" className="flex items-center gap-2">
             <History className="h-4 w-4" />
             Upload History
@@ -107,6 +113,23 @@ export default async function ActivityPage() {
 
         <TabsContent value="forecast-changes">
           <ForecastAuditTable />
+        </TabsContent>
+
+        <TabsContent value="verification" className="space-y-4">
+          <Tabs defaultValue="verification-status" className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="verification-status">Status</TabsTrigger>
+              <TabsTrigger value="verification-history">History</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="verification-status">
+              <ForecastVerificationStatusTable />
+            </TabsContent>
+
+            <TabsContent value="verification-history">
+              <ForecastVerificationHistoryTable />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         <TabsContent value="upload-history">

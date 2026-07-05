@@ -12,6 +12,17 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Dialog,
   DialogContent,
@@ -275,6 +286,17 @@ type ForecastTableProps = {
   editable?: boolean
   lastMonthActuals?: Map<string, number>
   editedCells?: Set<string>
+  monthStatuses?: Record<number, {
+    isCompleted: boolean
+    completedAt: string | null
+    completedByName: string | null
+    unlockedAt: string | null
+    unlockedByName: string | null
+  }>
+  lockedMonths?: Set<number>
+  onCompleteMonth?: (month: number, note?: string) => Promise<void>
+  onUnlockMonth?: (month: number, note?: string) => Promise<void>
+  monthActionLoading?: number | null
 }
 
 type EditingCell = {
@@ -290,6 +312,11 @@ export function ForecastTable({
   editable = true,
   lastMonthActuals,
   editedCells,
+  monthStatuses = {},
+  lockedMonths = new Set<number>(),
+  onCompleteMonth,
+  onUnlockMonth,
+  monthActionLoading = null,
 }: ForecastTableProps) {
   const [editingCell, setEditingCell] = useState<EditingCell>(null)
   const [editValue, setEditValue] = useState<string>("")
@@ -299,6 +326,9 @@ export function ForecastTable({
   const [viewMode, setViewMode] = useState<ViewMode>("both")
   const [hiddenRows, setHiddenRows] = useState<Set<string>>(new Set())
   const [sortByTemplate, setSortByTemplate] = useState(true)
+  const [confirmCompleteMonth, setConfirmCompleteMonth] = useState<number | null>(null)
+  const [confirmUnlockMonth, setConfirmUnlockMonth] = useState<number | null>(null)
+  const [actionNote, setActionNote] = useState("")
 
   // Metric toggles
   const [showForecast, setShowForecast] = useState(true)
@@ -380,6 +410,38 @@ export function ForecastTable({
     setEditDialogOpen(false)
     setEditingCell(null)
     setEditValue("")
+  }
+
+  const handleRequestCompleteMonth = (month: number) => {
+    if (!onCompleteMonth || monthStatuses[month]?.isCompleted || monthActionLoading === month) return
+    setActionNote("")
+    setConfirmCompleteMonth(month)
+  }
+
+  const handleConfirmCompleteMonth = async () => {
+    if (!onCompleteMonth || confirmCompleteMonth === null) return
+
+    const month = confirmCompleteMonth
+    const note = actionNote
+    setConfirmCompleteMonth(null)
+    setActionNote("")
+    await onCompleteMonth(month, note)
+  }
+
+  const handleRequestUnlockMonth = (month: number) => {
+    if (!onUnlockMonth || monthActionLoading === month || !monthStatuses[month]?.isCompleted) return
+    setActionNote("")
+    setConfirmUnlockMonth(month)
+  }
+
+  const handleConfirmUnlockMonth = async () => {
+    if (!onUnlockMonth || confirmUnlockMonth === null) return
+
+    const month = confirmUnlockMonth
+    const note = actionNote
+    setConfirmUnlockMonth(null)
+    setActionNote("")
+    await onUnlockMonth(month, note)
   }
 
   // Restrictive cap for display
@@ -491,12 +553,54 @@ export function ForecastTable({
               <div
                 key={month}
                 className={cn(
-                  "shrink-0 text-center py-2 border-l",
+                  "shrink-0 text-center px-2 py-2 border-l",
                   month === currentMonth && "border-b-2 border-b-primary"
                 )}
                 style={{ width: visibleMetricCount * 120 }}
               >
-                {getShortMonthName(month)}
+                <div className="flex flex-col items-center gap-1">
+                  <span>{getShortMonthName(month)}</span>
+                  <div className="min-h-[24px] flex items-center justify-center gap-2 text-[11px] font-normal text-muted-foreground">
+                    {onCompleteMonth ? (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={monthActionLoading === month || monthStatuses[month]?.isCompleted}
+                        onClick={() => handleRequestCompleteMonth(month)}
+                      >
+                        <Checkbox
+                          checked={monthStatuses[month]?.isCompleted ?? false}
+                          className="pointer-events-none"
+                          disabled={monthActionLoading === month || monthStatuses[month]?.isCompleted}
+                          aria-hidden="true"
+                        />
+                        <span>Forecasted</span>
+                      </button>
+                    ) : monthStatuses[month]?.isCompleted ? (
+                      <>
+                        <Badge variant="default" className="text-[10px] uppercase tracking-wide">
+                          Forecasted
+                        </Badge>
+                        {onUnlockMonth && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[10px]"
+                            disabled={monthActionLoading === month}
+                            onClick={() => handleRequestUnlockMonth(month)}
+                          >
+                            {monthActionLoading === month ? <Loader2 className="h-3 w-3 animate-spin" /> : "Unlock"}
+                          </Button>
+                        )}
+                      </>
+                    ) : monthStatuses[month]?.unlockedAt ? (
+                      <span>Open for rework</span>
+                    ) : (
+                      <span>Open</span>
+                    )}
+                  </div>
+                </div>
               </div>
             ))}
             {(showForecast || showBudget) && (
@@ -542,7 +646,8 @@ export function ForecastTable({
                 {months.map(month => {
                   const f = descForecasts.find(m => m.month === month)
                   const isCurrent = month === currentMonth
-                  const isClickable = editable && onUpdateForecast && f && isLeafDescription(description) && !BUDGET_ONLY_DESCS.has(normDesc(description)) && !NON_EDITABLE_SUBTOTALS.has(normDesc(description))
+                  const isLocked = lockedMonths.has(month)
+                  const isClickable = editable && onUpdateForecast && f && !isLocked && isLeafDescription(description) && !BUDGET_ONLY_DESCS.has(normDesc(description)) && !NON_EDITABLE_SUBTOTALS.has(normDesc(description))
                   const isEdited = f && editedCells?.has(`${description}\t${month}`)
 
                   return (
@@ -552,6 +657,7 @@ export function ForecastTable({
                           className={cn(
                             "shrink-0 w-[120px] text-center p-2 relative group/cell border-l",
                             isCurrent && "bg-primary/5",
+                            isLocked && "bg-emerald-50/70 dark:bg-emerald-950/20",
                             isClickable && "cursor-pointer hover:bg-muted/40 transition-colors"
                           )}
                           onClick={() => isClickable && handleCellClick(description, month, f.forecastValue)}
@@ -711,6 +817,128 @@ export function ForecastTable({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={confirmCompleteMonth !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmCompleteMonth(null)
+            setActionNote("")
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark month as forecasted?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmCompleteMonth !== null
+                ? `You are about to finalize ${getShortMonthName(confirmCompleteMonth)}.`
+                : "You are about to finalize this month."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-4 text-sm text-muted-foreground">
+            <div className="space-y-2">
+              <p>This will mark the month as forecasted for your branch.</p>
+              <p>All forecast cells for that month will be locked immediately after confirmation.</p>
+              <p>You will not be able to make further changes unless HQ unlocks the month for rework.</p>
+            </div>
+            <div className="space-y-1.5 pt-2">
+              <label htmlFor="complete-note" className="text-xs font-semibold text-foreground">
+                Optional Note / Comments
+              </label>
+              <Textarea
+                id="complete-note"
+                placeholder="Provide details or comments (optional)..."
+                value={actionNote}
+                onChange={(e) => setActionNote(e.target.value)}
+                className="min-h-16 text-sm"
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={confirmCompleteMonth !== null && monthActionLoading === confirmCompleteMonth}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={confirmCompleteMonth !== null && monthActionLoading === confirmCompleteMonth}
+              onClick={(event) => {
+                event.preventDefault()
+                void handleConfirmCompleteMonth()
+              }}
+            >
+              {confirmCompleteMonth !== null && monthActionLoading === confirmCompleteMonth ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Confirming...
+                </>
+              ) : (
+                "Confirm"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={confirmUnlockMonth !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmUnlockMonth(null)
+            setActionNote("")
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unlock this month for rework?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmUnlockMonth !== null
+                ? `You are about to reopen ${getShortMonthName(confirmUnlockMonth)} for edits.`
+                : "You are about to reopen this month for edits."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-4 text-sm text-muted-foreground">
+            <div className="space-y-2">
+              <p>This will remove the forecasted lock for the selected month.</p>
+              <p>Branch users will be able to edit forecast cells for that month again.</p>
+              <p>The month will remain open until it is marked forecasted again.</p>
+            </div>
+            <div className="space-y-1.5 pt-2">
+              <label htmlFor="unlock-note" className="text-xs font-semibold text-foreground">
+                Optional Note / Reason
+              </label>
+              <Textarea
+                id="unlock-note"
+                placeholder="Reason for unlocking this month (optional)..."
+                value={actionNote}
+                onChange={(e) => setActionNote(e.target.value)}
+                className="min-h-16 text-sm"
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={confirmUnlockMonth !== null && monthActionLoading === confirmUnlockMonth}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={confirmUnlockMonth !== null && monthActionLoading === confirmUnlockMonth}
+              onClick={(event) => {
+                event.preventDefault()
+                void handleConfirmUnlockMonth()
+              }}
+            >
+              {confirmUnlockMonth !== null && monthActionLoading === confirmUnlockMonth ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Unlocking...
+                </>
+              ) : (
+                "Unlock"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
