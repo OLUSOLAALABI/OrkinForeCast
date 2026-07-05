@@ -60,6 +60,23 @@ type BranchAccessRow = {
   } | null
 }
 
+type ForecastMonthStatusRow = {
+  month: number
+  is_completed: boolean
+  completed_at: string | null
+  completed_by: string | null
+  unlocked_at: string | null
+  unlocked_by: string | null
+}
+
+type ForecastMonthStatus = {
+  isCompleted: boolean
+  completedAt: string | null
+  completedByName: string | null
+  unlockedAt: string | null
+  unlockedByName: string | null
+}
+
 function normalizeAssignedBranches(rows: BranchAccessRow[]): Branch[] {
   const byId = new Map<string, Branch>()
 
@@ -264,6 +281,8 @@ export default function ForecastPage() {
   const lastFetchedKeyRef = useRef<string | null>(null)
   const [lastMonthActuals, setLastMonthActuals] = useState<Map<string, number>>(new Map())
   const [editedCells, setEditedCells] = useState<Set<string>>(new Set())
+  const [monthStatuses, setMonthStatuses] = useState<Record<number, ForecastMonthStatus>>({})
+  const [monthStatusActionMonth, setMonthStatusActionMonth] = useState<number | null>(null)
   const [uploading, setUploading] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -418,6 +437,78 @@ export default function ForecastPage() {
     ? (branches.some((branch) => branch.id === selectedBranch) ? selectedBranch : branches[0]?.id ?? "")
     : selectedBranch || ALL_BRANCHES_ID
 
+  const loadMonthStatuses = useCallback(async (branchId: string, year: number) => {
+    const { data: statusRows, error: statusError } = await supabase
+      .from("forecast_month_status")
+      .select("month, is_completed, completed_at, completed_by, unlocked_at, unlocked_by")
+      .eq("branch_id", branchId)
+      .eq("year", year)
+
+    if (statusError) {
+      throw statusError
+    }
+
+    const userIds = [...new Set(
+      (statusRows ?? []).flatMap((row) => [row.completed_by, row.unlocked_by]).filter((value): value is string => Boolean(value))
+    )]
+
+    const { data: userNames } = userIds.length > 0
+      ? await supabase.rpc("resolve_user_names", { user_ids: userIds })
+      : { data: [] }
+
+    const nameMap = new Map<string, string>(
+      (userNames ?? []).map((entry: { id: string; display_name: string }) => [entry.id, entry.display_name])
+    )
+
+    const nextStatuses: Record<number, ForecastMonthStatus> = {}
+    for (const row of (statusRows ?? []) as ForecastMonthStatusRow[]) {
+      nextStatuses[row.month] = {
+        isCompleted: row.is_completed,
+        completedAt: row.completed_at,
+        completedByName: row.completed_by ? (nameMap.get(row.completed_by) ?? "Unknown") : null,
+        unlockedAt: row.unlocked_at,
+        unlockedByName: row.unlocked_by ? (nameMap.get(row.unlocked_by) ?? "Unknown") : null,
+      }
+    }
+
+    return nextStatuses
+  }, [supabase])
+
+  const setForecastMonthStatus = useCallback(async (month: number, completed: boolean, note?: string | null) => {
+    if (!selectedBranch || selectedBranch === ALL_BRANCHES_ID) return
+
+    setMonthStatusActionMonth(month)
+    setError(null)
+
+    try {
+      const { error: statusError } = await supabase.rpc("set_forecast_month_status", {
+        p_branch_id: selectedBranch,
+        p_year: currentYear,
+        p_month: month,
+        p_completed: completed,
+        p_note: note?.trim() ? note.trim() : null,
+      })
+
+      if (statusError) {
+        throw statusError
+      }
+
+      const refreshedStatuses = await loadMonthStatuses(selectedBranch, currentYear)
+      setMonthStatuses(refreshedStatuses)
+      toast.success(
+        completed
+          ? `${getShortMonthName(month)} marked as forecasted and locked.`
+          : `${getShortMonthName(month)} unlocked for rework.`
+      )
+    } catch (err: any) {
+      console.error("Error updating forecast month status:", err)
+      setError(err?.message || "Failed to update forecast verification status")
+      toast.error(err?.message || "Failed to update forecast verification status")
+    } finally {
+      setMonthStatusActionMonth(null)
+    }
+  }, [selectedBranch, currentYear, supabase, loadMonthStatuses])
+
   const loadForecasts = useCallback(async () => {
     if (!selectedBranch) return
 
@@ -426,6 +517,8 @@ export default function ForecastPage() {
 
     try {
       if (selectedBranch === ALL_BRANCHES_ID) {
+        setMonthStatuses({})
+        setEditedCells(new Set())
         const branchIds = selectedRegionId && selectedRegionId !== ALL_REGIONS_ID
           ? branches.filter((b: Branch) => b.region_id === selectedRegionId).map((b: Branch) => b.id)
           : branches.map((b: Branch) => b.id)
@@ -512,12 +605,15 @@ export default function ForecastPage() {
         setRawForecastRows(breakdownRows)
       } else {
         // Single branch view — ~2000 rows, but PostgREST max-rows is 1000, so fetch in 2 pages
-        const [forecastRes1, forecastRes2, actualRes, auditRes] = await Promise.all([
+        const [forecastRes1, forecastRes2, actualRes, auditRes, statusMap] = await Promise.all([
           supabase.from("forecasts").select("*").eq("branch_id", selectedBranch).eq("year", currentYear).order("id").range(0, 999),
           supabase.from("forecasts").select("*").eq("branch_id", selectedBranch).eq("year", currentYear).order("id").range(1000, 1999),
           supabase.from("actuals").select("*").eq("branch_id", selectedBranch).eq("year", currentYear),
-          supabase.from("forecast_audit_log").select("description, month").eq("branch_id", selectedBranch).eq("year", currentYear).limit(5000)
+          supabase.from("forecast_audit_log").select("description, month").eq("branch_id", selectedBranch).eq("year", currentYear).limit(5000),
+          loadMonthStatuses(selectedBranch, currentYear)
         ])
+
+        setMonthStatuses(statusMap)
 
         // Build set of edited cells from audit log
         const editedKeys = new Set<string>()
@@ -614,7 +710,7 @@ export default function ForecastPage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedBranch, selectedRegionId, supabase, currentYear, currentMonth, branches])
+  }, [selectedBranch, selectedRegionId, supabase, currentYear, currentMonth, branches, loadMonthStatuses])
 
   const fetchVersionRef = useRef(0)
 
@@ -677,6 +773,18 @@ export default function ForecastPage() {
       console.error("Error fetching last month actuals:", err)
     }
   }, [selectedBranch, selectedRegionId, profile, currentYear, supabase])
+
+  const completedMonths = useMemo(
+    () => new Set(
+      Object.entries(monthStatuses)
+        .filter(([, status]) => status.isCompleted)
+        .map(([month]) => Number(month))
+    ),
+    [monthStatuses]
+  )
+
+  const canCompleteForecastMonth = profile?.role === "branch_user" && selectedBranch !== ALL_BRANCHES_ID
+  const canUnlockForecastMonth = profile?.role === "hq_admin" && selectedBranch !== ALL_BRANCHES_ID
 
   useEffect(() => {
     fetchLastMonthActuals()
@@ -904,6 +1012,13 @@ export default function ForecastPage() {
 
   const handleUpdateForecast = async (description: string, month: number, newValue: number) => {
     if (!selectedBranch || selectedBranch === ALL_BRANCHES_ID) return
+
+    if (completedMonths.has(month)) {
+      const message = `${getShortMonthName(month)} has been marked forecasted and is locked until HQ unlocks it for rework.`
+      setError(message)
+      toast.error(message)
+      return
+    }
 
     // Find the old value for audit logging
     const oldRow = forecasts.find(f => f.description === description && f.month === month)
@@ -1420,8 +1535,8 @@ export default function ForecastPage() {
         <Alert className="bg-muted/50">
           <AlertDescription>
             {profile?.role === "branch_user"
-              ? "Branch level: view-only. Budget and forecast for your branch; variance shows forecast vs budget."
-              : "Branch level: budget and forecast for this branch. Variance = Forecast − Budget. You can edit forecast values in the table."}
+              ? "Branch level: budget and forecast for your branch. Mark a month as Forecasted when it is finalized; that month locks until HQ unlocks it for rework."
+              : "Branch level: budget and forecast for this branch. Variance = Forecast − Budget. Completed months are locked until HQ unlocks them for rework."}
           </AlertDescription>
         </Alert>
       )}
@@ -1713,6 +1828,11 @@ export default function ForecastPage() {
                     editable={selectedBranch !== ALL_BRANCHES_ID}
                     lastMonthActuals={lastMonthActuals}
                     editedCells={editedCells}
+                    monthStatuses={monthStatuses}
+                    lockedMonths={completedMonths}
+                    onCompleteMonth={canCompleteForecastMonth ? (month, note) => setForecastMonthStatus(month, true, note) : undefined}
+                    onUnlockMonth={canUnlockForecastMonth ? (month, note) => setForecastMonthStatus(month, false, note) : undefined}
+                    monthActionLoading={monthStatusActionMonth}
                   />
                 </TabsContent>
               </Tabs>
