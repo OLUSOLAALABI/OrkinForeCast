@@ -284,6 +284,7 @@ export default function ForecastPage() {
   const [monthStatuses, setMonthStatuses] = useState<Record<number, ForecastMonthStatus>>({})
   const [monthStatusActionMonth, setMonthStatusActionMonth] = useState<number | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [workingDays, setWorkingDays] = useState<Record<number, number>>({})
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -786,9 +787,62 @@ export default function ForecastPage() {
   const canCompleteForecastMonth = profile?.role === "branch_user" && selectedBranch !== ALL_BRANCHES_ID
   const canUnlockForecastMonth = profile?.role === "hq_admin" && selectedBranch !== ALL_BRANCHES_ID
 
+  const fetchWorkingDays = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("working_days")
+        .select("month, days")
+        .eq("year", currentYear)
+
+      if (error) {
+        if (error.code !== "PGRST204" && error.code !== "PGRST205") {
+          console.error("Error fetching working days:", error)
+        }
+        return
+      }
+
+      const map: Record<number, number> = {}
+      for (const row of data ?? []) {
+        map[row.month] = row.days
+      }
+      setWorkingDays(map)
+    } catch (err) {
+      console.error("Error fetching working days:", err)
+    }
+  }, [currentYear, supabase])
+
+  const handleUpdateWorkingDays = useCallback(async (month: number, days: number) => {
+    try {
+      const { error } = await supabase
+        .from("working_days")
+        .upsert({
+          year: currentYear,
+          month: month,
+          days: days,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: "year,month"
+        })
+
+      if (error) {
+        throw error
+      }
+
+      toast.success(`Updated working days for ${getShortMonthName(month)} to ${days} W/D.`)
+      await fetchWorkingDays()
+    } catch (err: any) {
+      console.error("Error updating working days:", err)
+      toast.error(err.message || "Failed to update working days")
+    }
+  }, [currentYear, supabase, fetchWorkingDays])
+
   useEffect(() => {
     fetchLastMonthActuals()
   }, [fetchLastMonthActuals])
+
+  useEffect(() => {
+    fetchWorkingDays()
+  }, [fetchWorkingDays])
 
   // ── File selection handler ──
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1833,6 +1887,9 @@ export default function ForecastPage() {
                     onCompleteMonth={canCompleteForecastMonth ? (month, note) => setForecastMonthStatus(month, true, note) : undefined}
                     onUnlockMonth={canUnlockForecastMonth ? (month, note) => setForecastMonthStatus(month, false, note) : undefined}
                     monthActionLoading={monthStatusActionMonth}
+                    workingDaysMap={workingDays}
+                    onUpdateWorkingDays={profile?.role === "hq_admin" ? handleUpdateWorkingDays : undefined}
+                    currentYear={currentYear}
                   />
                 </TabsContent>
               </Tabs>

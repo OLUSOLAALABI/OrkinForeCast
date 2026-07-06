@@ -49,7 +49,8 @@ import {
   isLeafDescription,
   normDesc,
   isRevenueLine,
-  isExpenseLine
+  isExpenseLine,
+  getOntarioWorkingDays
 } from "@/lib/forecasting"
 import { cn } from "@/lib/utils"
 
@@ -297,6 +298,9 @@ type ForecastTableProps = {
   onCompleteMonth?: (month: number, note?: string) => Promise<void>
   onUnlockMonth?: (month: number, note?: string) => Promise<void>
   monthActionLoading?: number | null
+  workingDaysMap?: Record<number, number>
+  onUpdateWorkingDays?: (month: number, days: number) => Promise<void>
+  currentYear?: number
 }
 
 type EditingCell = {
@@ -317,6 +321,9 @@ export function ForecastTable({
   onCompleteMonth,
   onUnlockMonth,
   monthActionLoading = null,
+  workingDaysMap = {},
+  onUpdateWorkingDays,
+  currentYear = 2026,
 }: ForecastTableProps) {
   const [editingCell, setEditingCell] = useState<EditingCell>(null)
   const [editValue, setEditValue] = useState<string>("")
@@ -329,6 +336,9 @@ export function ForecastTable({
   const [confirmCompleteMonth, setConfirmCompleteMonth] = useState<number | null>(null)
   const [confirmUnlockMonth, setConfirmUnlockMonth] = useState<number | null>(null)
   const [actionNote, setActionNote] = useState("")
+  const [editingWorkingDaysMonth, setEditingWorkingDaysMonth] = useState<number | null>(null)
+  const [editingWorkingDaysValue, setEditingWorkingDaysValue] = useState<string>("")
+  const [updatingWorkingDays, setUpdatingWorkingDays] = useState(false)
 
   // Metric toggles
   const [showForecast, setShowForecast] = useState(true)
@@ -442,6 +452,20 @@ export function ForecastTable({
     setConfirmUnlockMonth(null)
     setActionNote("")
     await onUnlockMonth(month, note)
+  }
+
+  const handleSaveWorkingDays = async () => {
+    if (!onUpdateWorkingDays || editingWorkingDaysMonth === null) return
+    const val = parseInt(editingWorkingDaysValue)
+    if (isNaN(val) || val < 0 || val > 31) return
+
+    setUpdatingWorkingDays(true)
+    try {
+      await onUpdateWorkingDays(editingWorkingDaysMonth, val)
+      setEditingWorkingDaysMonth(null)
+    } finally {
+      setUpdatingWorkingDays(false)
+    }
   }
 
   // Restrictive cap for display
@@ -559,7 +583,24 @@ export function ForecastTable({
                 style={{ width: visibleMetricCount * 120 }}
               >
                 <div className="flex flex-col items-center gap-1">
-                  <span>{getShortMonthName(month)}</span>
+                  {onUpdateWorkingDays ? (
+                    <button
+                      type="button"
+                      className="font-bold hover:underline cursor-pointer group/wd flex items-center gap-1.5 outline-none focus-visible:ring-1 focus-visible:ring-ring rounded px-1.5 py-0.5"
+                      onClick={() => {
+                        setEditingWorkingDaysMonth(month)
+                        setEditingWorkingDaysValue((workingDaysMap[month] ?? getOntarioWorkingDays(currentYear, month) ?? 0).toString())
+                      }}
+                      title="Click to edit working days"
+                    >
+                      <span>{getShortMonthName(month)} ({workingDaysMap[month] ?? getOntarioWorkingDays(currentYear, month) ?? 0} W/D)</span>
+                      <Pencil className="h-3 w-3 opacity-60 group-hover/wd:opacity-100 transition-opacity text-primary shrink-0" />
+                    </button>
+                  ) : (
+                    <span className="font-bold px-1.5 py-0.5">
+                      {getShortMonthName(month)} ({workingDaysMap[month] ?? getOntarioWorkingDays(currentYear, month) ?? 0} W/D)
+                    </span>
+                  )}
                   <div className="min-h-[24px] flex items-center justify-center gap-2 text-[11px] font-normal text-muted-foreground">
                     {onCompleteMonth ? (
                       <button
@@ -939,6 +980,68 @@ export function ForecastTable({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={editingWorkingDaysMonth !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingWorkingDaysMonth(null)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>
+              Edit Working Days for {editingWorkingDaysMonth ? getShortMonthName(editingWorkingDaysMonth) : ""}
+            </DialogTitle>
+            <DialogDescription>
+              Override the number of working days for this month. This change will apply globally.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="working-days-input">Working Days</Label>
+              <Input
+                id="working-days-input"
+                type="number"
+                min="0"
+                max="31"
+                value={editingWorkingDaysValue}
+                onChange={(e) => setEditingWorkingDaysValue(e.target.value)}
+                className="w-full"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditingWorkingDaysMonth(null)}
+              disabled={updatingWorkingDays}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveWorkingDays}
+              disabled={
+                updatingWorkingDays ||
+                !editingWorkingDaysValue ||
+                isNaN(parseInt(editingWorkingDaysValue)) ||
+                parseInt(editingWorkingDaysValue) < 0 ||
+                parseInt(editingWorkingDaysValue) > 31
+              }
+            >
+              {updatingWorkingDays ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save Changes"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
