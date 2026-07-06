@@ -240,3 +240,117 @@ export function getShortMonthName(month: number): string {
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
   return months[month - 1] || ""
 }
+
+/**
+ * Calculates the number of working days (Mon-Fri) in Ontario, Canada
+ * for any given year and month, taking into account statutory public holidays
+ * and weekend observations.
+ */
+export function getOntarioWorkingDays(year: number, month: number): number {
+  // Helper to get Easter Sunday using Meeus/Jones/Butcher algorithm
+  function getEasterSunday(y: number): Date {
+    const a = y % 19
+    const b = Math.floor(y / 100)
+    const c = y % 100
+    const d = Math.floor(b / 4)
+    const e = b % 4
+    const f = Math.floor((b + 8) / 25)
+    const g = Math.floor((b - f + 1) / 3)
+    const h = (19 * a + b - d - g + 15) % 30
+    const i = Math.floor(c / 4)
+    const k = c % 4
+    const l = (32 + 2 * e + 2 * i - h - k) % 7
+    const m = Math.floor((a + 11 * h + 22 * l) / 451)
+    const monthIndex = Math.floor((h + l - 7 * m + 114) / 31)
+    const day = ((h + l - 7 * m + 114) % 31) + 1
+    return new Date(y, monthIndex - 1, day)
+  }
+
+  // Good Friday is 2 days before Easter Sunday
+  const easter = getEasterSunday(year)
+  const goodFriday = new Date(easter)
+  goodFriday.setDate(easter.getDate() - 2)
+
+  // 3rd Monday in Feb (Family Day)
+  const feb1 = new Date(year, 1, 1)
+  const feb1Day = feb1.getDay()
+  const firstMondayInFeb = 1 + (8 - feb1Day) % 7
+  const familyDay = new Date(year, 1, firstMondayInFeb + 14)
+
+  // Victoria Day: Monday preceding May 25 (May 24 or earlier)
+  const may25 = new Date(year, 4, 25)
+  const may25Day = may25.getDay()
+  const victoriaDay = new Date(year, 4, 25 - (may25Day === 0 ? 6 : (may25Day - 1 || 7)))
+
+  // Canada Day: July 1. If Sunday, observed Monday July 2
+  let canadaDay = new Date(year, 6, 1)
+  if (canadaDay.getDay() === 0) {
+    canadaDay = new Date(year, 6, 2)
+  }
+
+  // Labour Day: 1st Monday in Sept
+  const sept1 = new Date(year, 8, 1)
+  const sept1Day = sept1.getDay()
+  const labourDay = new Date(year, 8, 1 + (8 - sept1Day) % 7)
+
+  // Thanksgiving Day: 2nd Monday in Oct
+  const oct1 = new Date(year, 9, 1)
+  const oct1Day = oct1.getDay()
+  const thanksgivingDay = new Date(year, 9, 1 + (8 - oct1Day) % 7 + 7)
+
+  // Christmas Day & Boxing Day weekend observation
+  // Christmas = Dec 25, Boxing Day = Dec 26
+  let christmas = new Date(year, 11, 25)
+  let boxingDay = new Date(year, 11, 26)
+
+  const xmasDayOfWeek = christmas.getDay() // 0 = Sun, 5 = Fri, 6 = Sat
+  if (xmasDayOfWeek === 5) {
+    // Friday Christmas, Saturday Boxing Day -> observed Monday Dec 28
+    boxingDay = new Date(year, 11, 28)
+  } else if (xmasDayOfWeek === 6) {
+    // Saturday Christmas, Sunday Boxing Day -> observed Mon Dec 27, Tue Dec 28
+    christmas = new Date(year, 11, 27)
+    boxingDay = new Date(year, 11, 28)
+  } else if (xmasDayOfWeek === 0) {
+    // Sunday Christmas, Monday Boxing Day -> observed Mon Dec 26, Tue Dec 27
+    christmas = new Date(year, 11, 26)
+    boxingDay = new Date(year, 11, 27)
+  }
+
+  const holidayDates = new Set([
+    `${year}-01-01`, // New Year's Day (Jan 1)
+    `${year}-02-${String(familyDay.getDate()).padStart(2, "0")}`,
+    `${year}-04-${String(goodFriday.getDate()).padStart(2, "0")}`,
+    `${year}-05-${String(victoriaDay.getDate()).padStart(2, "0")}`,
+    `${year}-07-${String(canadaDay.getDate()).padStart(2, "0")}`,
+    `${year}-09-${String(labourDay.getDate()).padStart(2, "0")}`,
+    `${year}-10-${String(thanksgivingDay.getDate()).padStart(2, "0")}`,
+    `${year}-12-${String(christmas.getDate()).padStart(2, "0")}`,
+    `${year}-12-${String(boxingDay.getDate()).padStart(2, "0")}`,
+  ])
+
+  // New Year's Day observation: if Jan 1 is Saturday or Sunday, observe next Monday (usually Jan 2 or Jan 3)
+  const newYears = new Date(year, 0, 1)
+  if (newYears.getDay() === 0) {
+    holidayDates.add(`${year}-01-02`)
+  } else if (newYears.getDay() === 6) {
+    holidayDates.add(`${year}-01-03`)
+  }
+
+  let workingDays = 0
+  const daysInMonth = new Date(year, month, 0).getDate()
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = new Date(year, month - 1, d)
+    const dayOfWeek = date.getDay()
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
+
+    const formattedDate = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`
+
+    if (!isWeekend && !holidayDates.has(formattedDate)) {
+      workingDays++
+    }
+  }
+
+  return workingDays
+}
+
