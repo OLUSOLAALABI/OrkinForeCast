@@ -143,7 +143,6 @@ function detectYearFromSheet(rows) {
 // Descriptions that appear in multiple P&L sections.
 const DUPLICATE_RENAMES = {
   "COMMERCIAL BED BUG REVENUE": { first: "COMMERCIAL BED BUG REVENUE (recur)", second: "COMMERCIAL BED BUG REVENUE" },
-  "ORKIN/AIRE": { first: "ORKIN/AIRE", second: "ORKIN/AIRE (M&S)" },
   "DEPRECIATION": { first: "DEPRECIATION", second: "DEPRECIATION (fixed)" },
 }
 
