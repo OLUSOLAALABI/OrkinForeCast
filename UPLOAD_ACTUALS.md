@@ -33,7 +33,8 @@ Column I has raw GL descriptions that can be duplicated or inconsistent across s
 
 | Row | Column I (raw) | Column T (canonical) |
 |-----|---|---|
-| 16/136 | `ORKIN/AIRE` / `ORKIN/AIRE` | `ORKIN/AIRE` / `ORKIN/AIRE (M&S)` |
+| 16 | `ORKIN/AIRE` | `ORKIN/AIRE` |
+| 136 | `ORKIN/AIRE` | `ODOUR/AIRE` *(renamed from `ORKIN/AIRE (M&S)`)* |
 | 155/198 | `DEPRECIATION` / `DEPRECIATION` | `DEPRECIATION` / `DEPRECIATION (fixed)` |
 | 265 | `PAYROLL SERVICE FEES` | `ULTIPRO COST` |
 | 46 | `COMMERCIAL BED BUG REVENUE (odd job)` | `COMMERCIAL BED BUG REVENUE` |

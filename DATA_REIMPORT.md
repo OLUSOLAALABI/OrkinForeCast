@@ -121,7 +121,6 @@ Some P&L line items appear twice with the same name. The import disambiguates th
 | Raw Name | 1st Occurrence | 2nd Occurrence |
 |----------|---------------|----------------|
 | COMMERCIAL BED BUG REVENUE | COMMERCIAL BED BUG REVENUE (recur) | COMMERCIAL BED BUG REVENUE |
-| ORKIN/AIRE | ORKIN/AIRE | ORKIN/AIRE (M&S) |
 | DEPRECIATION | DEPRECIATION | DEPRECIATION (fixed) |
 
 Variant names are also normalized:
@@ -149,7 +148,8 @@ Both `forecast-table.tsx` and `actuals-report-form.tsx` have a `TEMPLATE_ORDER` 
 Key items that were missing or re-positioned:
 - Added: PEST CONTROL REVENUE, MISCELLANEOUS REVENUE, TERMITE (TC) REVENUE, PAYROLL, PERSONNEL RELATED, MATERIALS AND SUPPLIES, VEHICLE EXPENSES, VEHICLE STANDING EXPENSES, AUTO ALLOWANCE, INSURANCE & CLAIMS, BAD DEBTS, OTHER EXPENSES, FIXED EXPENSES, CONTROLLABLE EXPENSES, TELEPHONE & UTILITIES, OVERHEAD ALLOCATIONS, NON RECURRING FEES
 - Moved: TC MGMT FAILURE (to after TERMITE TREATING, before PRETREAT)
-- Added duplicates: ORKIN/AIRE (M&S), DEPRECIATION (fixed)
+- Added duplicates: DEPRECIATION (fixed)
+- Renamed: ORKIN/AIRE (M&S) → ODOUR/AIRE (M&S suffix removed since the name is no longer ambiguous; see `scripts/020_rename_orkin_aire_ms_to_odour.sql`)
 
 ### Performance: HQ-Level Aggregation (RPC Functions)
 
