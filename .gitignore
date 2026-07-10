@@ -46,4 +46,7 @@ venv/
 # Temp inspection scripts
 /scripts/_*.mjs
 
+# Internal plans and incident writeups (not for client)
+/plans/
+
 nul
