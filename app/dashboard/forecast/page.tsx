@@ -741,6 +741,12 @@ export default function ForecastPage() {
         .from("last_month_actuals")
         .select("description, month, value")
         .eq("year", currentYear)
+        // PostgREST default max-rows is 1000; with ~19,838 rows/month this silently
+        // truncates the result and the React Map misses the latest month's data
+        // (this is the root cause of the June 2026 "Actuals" showing dashes from
+        // GASOLINE downward even though the DB had every row). .range(0, 9999) raises
+        // the cap to cover the full year for any HQ admin view.
+        .range(0, 9999)
 
       if (selectedBranch === ALL_BRANCHES_ID) {
         if (profile.role === "hq_admin") {
