@@ -998,6 +998,34 @@ export default function ForecastPage() {
 
       // Refresh the actuals data
       await fetchLastMonthActuals()
+
+      // ── Post-upload validation ─────────────────────────────────────────
+      // The chunked upload can silently drop a batch and still return 200 OK,
+      // leaving the database only partially populated. Verify the company-wide
+      // row count for the latest month uploaded is at least half of the
+      // master TEMPLATE_ORDER length. If it's short, raise a blocking red
+      // toast so the user knows to re-upload instead of seeing a silent
+      // half-broken table. (Issue: June 2026 client reported rows 16+
+      // showing dashes; DB had only 9 of 181 company-wide rows.)
+      try {
+        const { count: companyWideCount } = await supabase
+          .from("last_month_actuals")
+          .select("*", { count: "exact", head: true })
+          .eq("year", detectedYear)
+          .eq("month", lastMonth)
+          .eq("is_company_wide", true)
+
+        const minExpected = Math.floor(TEMPLATE_ORDER.length * 0.5)
+        if (companyWideCount !== null && companyWideCount < minExpected) {
+          toast.error(
+            `Upload looks incomplete — saved ${companyWideCount} of ~${TEMPLATE_ORDER.length} line items for ${getShortMonthName(lastMonth)} ${detectedYear}. Check your network and re-upload.`,
+            { duration: Infinity }
+          )
+        }
+      } catch (validationErr) {
+        // Validation is best-effort; never let it block the success path.
+        console.warn("Post-upload validation failed:", validationErr)
+      }
     } catch (err) {
       console.error("Upload error:", err)
       toast.error("Failed to process actuals file")
