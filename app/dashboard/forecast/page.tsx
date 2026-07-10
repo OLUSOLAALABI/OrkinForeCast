@@ -737,36 +737,48 @@ export default function ForecastPage() {
     if (!selectedBranch || !profile) return
 
     try {
-      let query = supabase
-        .from("last_month_actuals")
-        .select("description, month, value")
-        .eq("year", currentYear)
+      // PostgREST silently caps responses at 1000 rows even with .range(0, 299999),
+      // so a single query only returns the first 1000 rows. Paginate in chunks of 1000.
+      const PAGE_SIZE = 1000
+      const allRows: { description: string; month: number; value: number }[] = []
+      let pageFrom = 0
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        let pageQuery = supabase
+          .from("last_month_actuals")
+          .select("description, month, value")
+          .eq("year", currentYear)
+          .range(pageFrom, pageFrom + PAGE_SIZE - 1)
 
-      if (selectedBranch === ALL_BRANCHES_ID) {
-        if (profile.role === "hq_admin") {
-          if (selectedRegionId && selectedRegionId !== ALL_REGIONS_ID) {
-            query = query.eq("region_id", selectedRegionId)
-          } else {
-            query = query.eq("is_company_wide", true)
+        if (selectedBranch === ALL_BRANCHES_ID) {
+          if (profile.role === "hq_admin") {
+            if (selectedRegionId && selectedRegionId !== ALL_REGIONS_ID) {
+              pageQuery = pageQuery.eq("region_id", selectedRegionId)
+            } else {
+              pageQuery = pageQuery.eq("is_company_wide", true)
+            }
+          } else if (profile.role === "region_admin" && profile.region_id) {
+            pageQuery = pageQuery.eq("region_id", profile.region_id)
           }
-        } else if (profile.role === "region_admin" && profile.region_id) {
-          query = query.eq("region_id", profile.region_id)
+        } else {
+          pageQuery = pageQuery.eq("branch_id", selectedBranch)
         }
-      } else {
-        query = query.eq("branch_id", selectedBranch)
-      }
 
-      const { data, error: fetchErr } = await query
-      if (fetchErr) {
-        // Table may not exist yet — silently ignore
-        if (fetchErr.code !== "PGRST204" && fetchErr.code !== "PGRST205") {
-          console.error("Error fetching last month actuals:", fetchErr)
+        const { data: page, error: fetchErr } = await pageQuery
+        if (fetchErr) {
+          if (fetchErr.code !== "PGRST204" && fetchErr.code !== "PGRST205") {
+            console.error("Error fetching last month actuals:", fetchErr)
+          }
+          return
         }
-        return
+        if (!page || page.length === 0) break
+        allRows.push(...page)
+        if (page.length < PAGE_SIZE) break
+        pageFrom += PAGE_SIZE
       }
 
       const map = new Map<string, number>()
-      for (const row of data ?? []) {
+      for (const row of allRows) {
         map.set(`${row.description}\t${row.month}`, Number(row.value))
       }
       setLastMonthActuals(map)
