@@ -602,22 +602,12 @@ export function ForecastTable({
                     </span>
                   )}
                   <div className="min-h-[24px] flex items-center justify-center gap-2 text-[11px] font-normal text-muted-foreground">
-                    {onCompleteMonth ? (
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={monthActionLoading === month || monthStatuses[month]?.isCompleted}
-                        onClick={() => handleRequestCompleteMonth(month)}
-                      >
-                        <Checkbox
-                          checked={monthStatuses[month]?.isCompleted ?? false}
-                          className="pointer-events-none"
-                          disabled={monthActionLoading === month || monthStatuses[month]?.isCompleted}
-                          aria-hidden="true"
-                        />
-                        <span>Forecasted</span>
-                      </button>
-                    ) : monthStatuses[month]?.isCompleted ? (
+                    {/* Check isCompleted FIRST so users with both lock and
+                        unlock permission (region admins) can see the unlock
+                        button after locking. Previously onCompleteMonth was
+                        checked first, which short-circuited the unlock path
+                        for any role that could also lock. */}
+                    {monthStatuses[month]?.isCompleted ? (
                       <>
                         <Badge variant="default" className="text-[10px] uppercase tracking-wide">
                           Forecasted
@@ -635,6 +625,21 @@ export function ForecastTable({
                           </Button>
                         )}
                       </>
+                    ) : onCompleteMonth ? (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={monthActionLoading === month}
+                        onClick={() => handleRequestCompleteMonth(month)}
+                      >
+                        <Checkbox
+                          checked={monthStatuses[month]?.isCompleted ?? false}
+                          className="pointer-events-none"
+                          disabled={monthActionLoading === month}
+                          aria-hidden="true"
+                        />
+                        <span>Forecasted</span>
+                      </button>
                     ) : monthStatuses[month]?.unlockedAt ? (
                       <span>Open for rework</span>
                     ) : (
