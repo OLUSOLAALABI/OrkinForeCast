@@ -796,8 +796,27 @@ export default function ForecastPage() {
     [monthStatuses]
   )
 
-  const canCompleteForecastMonth = profile?.role === "branch_user" && selectedBranch !== ALL_BRANCHES_ID
-  const canUnlockForecastMonth = profile?.role === "hq_admin" && selectedBranch !== ALL_BRANCHES_ID
+  // Region-scope check: a region_admin can lock and unlock forecast
+  // months for branches in their own region (mirrors the SQL gate in
+  // set_forecast_month_status — UI is a UX hint, the SQL is the
+  // security boundary). Requires scripts/021_region_admin_lock_unlock.sql.
+  const selectedBranchRegionId = useMemo(() => {
+    if (!selectedBranch || selectedBranch === ALL_BRANCHES_ID) return null
+    return branches.find((b) => b.id === selectedBranch)?.region_id ?? null
+  }, [selectedBranch, branches])
+
+  const isRegionScopeBranch =
+    profile?.role === "region_admin" &&
+    selectedBranch !== ALL_BRANCHES_ID &&
+    selectedBranchRegionId != null &&
+    selectedBranchRegionId === profile.region_id
+
+  const canCompleteForecastMonth =
+    (profile?.role === "branch_user" && selectedBranch !== ALL_BRANCHES_ID) ||
+    isRegionScopeBranch
+  const canUnlockForecastMonth =
+    (profile?.role === "hq_admin" || isRegionScopeBranch) &&
+    selectedBranch !== ALL_BRANCHES_ID
 
   const fetchWorkingDays = useCallback(async () => {
     try {
@@ -1108,7 +1127,7 @@ export default function ForecastPage() {
     if (!selectedBranch || selectedBranch === ALL_BRANCHES_ID) return
 
     if (completedMonths.has(month)) {
-      const message = `${getShortMonthName(month)} has been marked forecasted and is locked until HQ unlocks it for rework.`
+      const message = `${getShortMonthName(month)} has been marked forecasted and is locked until HQ or your region admin unlocks it for rework.`
       setError(message)
       toast.error(message)
       return
@@ -1648,8 +1667,10 @@ export default function ForecastPage() {
         <Alert className="bg-muted/50">
           <AlertDescription>
             {profile?.role === "branch_user"
-              ? "Branch level: budget and forecast for your branch. Mark a month as Forecasted when it is finalized; that month locks until HQ unlocks it for rework."
-              : "Branch level: budget and forecast for this branch. Variance = Forecast − Budget. Completed months are locked until HQ unlocks them for rework."}
+              ? "Branch level: budget and forecast for your branch. Mark a month as Forecasted when it is finalized; that month locks until HQ or your region admin unlocks it for rework."
+              : profile?.role === "region_admin"
+                ? "Branch level: budget and forecast for branches in your region. Variance = Forecast − Budget. Mark a month as Forecasted when it is finalized, or unlock it for rework. Completed months are locked until HQ unlocks them."
+                : "Branch level: budget and forecast for this branch. Variance = Forecast − Budget. Completed months are locked until HQ or your region admin unlocks them for rework."}
           </AlertDescription>
         </Alert>
       )}
