@@ -1139,17 +1139,27 @@ export default function ForecastPage() {
         })
     }
 
-    // 1. Update the edited row in the database
+    // 1. Save the edited row to the database.
+    //    Use `upsert` (not `update`) so a missing row gets created. The
+    //    natural unique index on (branch_id, description, year, month) is
+    //    the conflict target. Without this, edits to descriptions that the
+    //    rebuild script never seeded (e.g. on new branches with sparse
+    //    data) were logged to `forecast_audit_log` but never persisted to
+    //    the `forecasts` table — see incident 2026-07 where 514 cells were
+    //    in the log but missing from the DB.
     const { error: updateError } = await supabase
       .from("forecasts")
-      .update({
-        forecast_value: newValue,
-        updated_at: new Date().toISOString()
-      })
-      .eq("branch_id", selectedBranch)
-      .eq("description", description)
-      .eq("year", currentYear)
-      .eq("month", month)
+      .upsert(
+        {
+          branch_id: selectedBranch,
+          description: description,
+          year: currentYear,
+          month: month,
+          forecast_value: newValue,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "branch_id,description,year,month", ignoreDuplicates: false }
+      )
 
     if (updateError) {
       console.error("Error updating forecast:", updateError)
@@ -1189,18 +1199,27 @@ export default function ForecastPage() {
 
     setForecasts(finalForecasts)
 
-    // 5. Persist subtotal updates to database (fire-and-forget)
+    // 5. Persist subtotal updates to database (fire-and-forget).
+    //    Same upsert rationale as the leaf save above — a subtotal row may
+    //    not exist yet for the (branch, description, year, month) and we
+    //    need it created.
     if (dbUpdates.length > 0) {
       const now = new Date().toISOString()
       Promise.all(
         dbUpdates.map(u =>
           supabase
             .from("forecasts")
-            .update({ forecast_value: u.value, updated_at: now })
-            .eq("branch_id", selectedBranch)
-            .eq("description", u.description)
-            .eq("year", currentYear)
-            .eq("month", month)
+            .upsert(
+              {
+                branch_id: selectedBranch,
+                description: u.description,
+                year: currentYear,
+                month: month,
+                forecast_value: u.value,
+                updated_at: now,
+              },
+              { onConflict: "branch_id,description,year,month", ignoreDuplicates: false }
+            )
         )
       ).catch(err => console.error("Error saving subtotal rows:", err))
     }

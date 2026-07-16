@@ -7,7 +7,13 @@
  * Budget blend: final = alpha × statistical + (1-alpha) × budget.
  * Default alpha = 0.5 (equal weight). Use --alpha=0.7 to lean more on history.
  *
- * Usage: node scripts/rebuild-2026-forecast-ets.mjs [--alpha=0.5] [--no-working-days] [--no-seasonal-index]
+ * Usage: node scripts/rebuild-2026-forecast-ets.mjs [--alpha=0.5] [--no-working-days] [--no-seasonal-index] [--force]
+ *
+ *   --force   Overwrite cells that a branch user has manually edited in the UI.
+ *             By default the script PROTECTS any (branch, description, year, month)
+ *             that has a row in `forecast_audit_log`, so a rebuild never wipes
+ *             hours of branch-user work — especially on new branches where the
+ *             algorithm has no history and would otherwise reset every cell to 0.
  */
 
 import fs from "fs"
@@ -21,6 +27,7 @@ const dataDir = path.join(__dirname, "data")
 
 const useWorkingDays = !process.argv.includes("--no-working-days")
 const useSeasonalIndex = !process.argv.includes("--no-seasonal-index")
+const FORCE_OVERWRITE_MANUAL = process.argv.includes("--force")
 
 // Budget blend alpha: 1.0 = pure statistical, 0.0 = pure budget, 0.5 = equal blend
 const alphaArg = process.argv.find(a => a.startsWith("--alpha="))
@@ -300,6 +307,50 @@ async function main() {
           last_month_value: 0,
           last_year_value: 0,
         })
+      }
+    }
+
+    // ── Protect manually-edited cells ───────────────────────────────────
+    // If a branch user has ever edited a (branch, description, year, month)
+    // in the UI, there will be a row in `forecast_audit_log` for that key.
+    // Removing those keys from `upserts` means the rebuild will NOT overwrite
+    // the user's saved value with the algorithm's output (which, for a brand
+    // new branch with no history, would just be 0). HQ can opt back in with
+    // --force when they explicitly want to reset manual edits.
+    if (!FORCE_OVERWRITE_MANUAL && upserts.length > 0) {
+      const keyIndex = new Map()
+      upserts.forEach((u, i) => {
+        keyIndex.set(`${u.branch_id}|${u.description}|${u.year}|${u.month}`, i)
+      })
+      const protectedKeys = new Set()
+      let auditFrom = 0
+      const AUDIT_PAGE = 1000
+      while (true) {
+        const { data: auditChunk, error: auditErr } = await supabase
+          .from("forecast_audit_log")
+          .select("branch_id, description, year, month")
+          .eq("branch_id", branch.id)
+          .range(auditFrom, auditFrom + AUDIT_PAGE - 1)
+        if (auditErr) {
+          console.error(`❌ audit-log fetch ${branch.code} ${branch.name}:`, auditErr.message)
+          process.exit(1)
+        }
+        const rows = auditChunk ?? []
+        for (const r of rows) {
+          const k = `${r.branch_id}|${r.description}|${r.year}|${r.month}`
+          if (keyIndex.has(k)) protectedKeys.add(k)
+        }
+        if (rows.length < AUDIT_PAGE) break
+        auditFrom += AUDIT_PAGE
+      }
+      if (protectedKeys.size > 0) {
+        const before = upserts.length
+        for (let i = upserts.length - 1; i >= 0; i--) {
+          const u = upserts[i]
+          const k = `${u.branch_id}|${u.description}|${u.year}|${u.month}`
+          if (protectedKeys.has(k)) upserts.splice(i, 1)
+        }
+        console.log(`  ↳ protected ${before - upserts.length} manually-edited cells for ${branch.code} ${branch.name}`)
       }
     }
 
