@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
-import { useSearchParams } from "next/navigation"
+import { useSearchParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { LineChart, Download, Upload, TrendingUp, TrendingDown, Loader2, AlertCircle, Pencil, Search } from "lucide-react"
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible"
+import { LineChart, Download, Upload, TrendingUp, TrendingDown, Loader2, AlertCircle, Pencil, Search, ChevronDown } from "lucide-react"
 import {
   formatCurrency,
   formatPercent,
@@ -75,6 +76,18 @@ type ForecastMonthStatus = {
   completedByName: string | null
   unlockedAt: string | null
   unlockedByName: string | null
+}
+
+// Snapshot of a loaded forecast scope so Back/forward navigation can restore instantly.
+type CachedForecast = {
+  forecasts: ForecastResult[]
+  rawForecastRows: { branch_id: string; description: string; month: number; forecast_value: number; budget_value: number }[]
+  monthStatuses: Record<number, ForecastMonthStatus>
+  editedCells: Set<string>
+}
+
+function buildScopeKey(selectedBranch: string, selectedRegionId: string, currentYear: number, currentMonth: number, branchCount: number) {
+  return `${selectedBranch}-${selectedRegionId}-${currentYear}-${currentMonth}-${branchCount}`
 }
 
 function normalizeAssignedBranches(rows: BranchAccessRow[]): Branch[] {
@@ -257,6 +270,7 @@ function recomputeAllSubtotals(forecasts: ForecastResult[], isSummary = false): 
 export default function ForecastPage() {
   const searchParams = useSearchParams()
   const branchFromUrl = searchParams.get("branch")
+  const router = useRouter()
   const [branches, setBranches] = useState<Branch[]>([])
   // Default to summary (all branches) so HQ/Region Admin see rollup immediately, not "Select a Branch"
   const [selectedBranch, setSelectedBranch] = useState<string>(branchFromUrl || ALL_BRANCHES_ID)
@@ -287,6 +301,21 @@ export default function ForecastPage() {
   const [workingDays, setWorkingDays] = useState<Record<number, number>>({})
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Collapse state for the (long) Branch contribution card so users can reach the table faster.
+  const [branchContributionOpen, setBranchContributionOpen] = useState(true)
+  // Cache of loaded forecast data per scope so Back/forward navigation restores instantly.
+  const forecastCacheRef = useRef<Map<string, CachedForecast>>(new Map())
+  // The scope key currently displayed; used to decide whether to show a skeleton (loading, no cached data yet).
+  const [activeScopeKey, setActiveScopeKey] = useState<string | null>(null)
+
+  // Persist the Branch contribution card collapse state across reloads.
+  useEffect(() => {
+    const saved = window.localStorage.getItem("orkin:branchContributionOpen")
+    if (saved !== null) setBranchContributionOpen(saved === "true")
+  }, [])
+  useEffect(() => {
+    window.localStorage.setItem("orkin:branchContributionOpen", String(branchContributionOpen))
+  }, [branchContributionOpen])
 
   const regionsList = useMemo(() => {
     const m = new Map<string, { id: string; name: string }>()
@@ -297,6 +326,27 @@ export default function ForecastPage() {
     })
     return [...m.values()].sort((a, b) => a.name.localeCompare(b.name))
   }, [branches])
+
+  // Branch ids + metadata for the current summary scope (HQ total or region-filtered).
+  // Used by the Total Company hover drill-down to fetch per-branch figures.
+  const summaryBranchIds = useMemo(() => {
+    if (selectedBranch !== ALL_BRANCHES_ID) return []
+    return selectedRegionId && selectedRegionId !== ALL_REGIONS_ID
+      ? branches.filter((b) => b.region_id === selectedRegionId).map((b) => b.id)
+      : branches.map((b) => b.id)
+  }, [selectedBranch, selectedRegionId, branches])
+
+  const branchMeta = useMemo(
+    () => branches.map((b) => ({ id: b.id, name: b.name, code: b.code })),
+    [branches]
+  )
+
+  const handleSelectBranch = useCallback(
+    (branchId: string) => {
+      router.push(`/dashboard/forecast?branch=${branchId}`, { scroll: false })
+    },
+    [router]
+  )
 
   // Per-branch breakdown for region/HQ summary view (revenue + expenses + contribution b/4 overhead for current month)
   // Uses stored subtotal rows (TOTAL NET REVENUE, TOTAL EXPENSES, CONTRIBUTION B/4 OVERHEAD) to match the Excel exactly.
@@ -428,7 +478,6 @@ export default function ForecastPage() {
           }
         }
       }
-      setLoading(false)
     }
     fetchData()
   }, [supabase, branchFromUrl])
@@ -510,11 +559,16 @@ export default function ForecastPage() {
     }
   }, [selectedBranch, currentYear, supabase, loadMonthStatuses])
 
-  const loadForecasts = useCallback(async () => {
+  const loadForecasts = useCallback(async (opts?: { silent?: boolean }) => {
     if (!selectedBranch) return
 
-    setLoading(true)
-    setError(null)
+    const branchCount = selectedBranch === ALL_BRANCHES_ID ? branches.length : 0
+    const scopeKey = buildScopeKey(selectedBranch, selectedRegionId, currentYear, currentMonth, branchCount)
+
+    if (!opts?.silent) {
+      setLoading(true)
+      setError(null)
+    }
 
     try {
       if (selectedBranch === ALL_BRANCHES_ID) {
@@ -604,6 +658,7 @@ export default function ForecastPage() {
 
         setForecasts(forecasts)
         setRawForecastRows(breakdownRows)
+        forecastCacheRef.current.set(scopeKey, { forecasts, rawForecastRows: breakdownRows, monthStatuses: {}, editedCells: new Set() })
       } else {
         // Single branch view — ~2000 rows, but PostgREST max-rows is 1000, so fetch in 2 pages
         const [forecastRes1, forecastRes2, actualRes, auditRes, statusMap] = await Promise.all([
@@ -675,6 +730,7 @@ export default function ForecastPage() {
           }
 
           setForecasts(formattedForecasts)
+          forecastCacheRef.current.set(scopeKey, { forecasts: formattedForecasts, rawForecastRows: existingForecasts, monthStatuses: statusMap, editedCells: editedKeys })
         } else {
           // No data at all — generate full zero template (skip section headers)
           const SECTION_HEADERS_EMPTY = new Set([
@@ -702,12 +758,14 @@ export default function ForecastPage() {
             }
           }
           setForecasts(zeroForecasts)
+          forecastCacheRef.current.set(scopeKey, { forecasts: zeroForecasts, rawForecastRows: [], monthStatuses: statusMap, editedCells: editedKeys })
         }
         setRawForecastRows(existingForecasts)
       }
     } catch (err: any) {
       console.error("Error loading forecasts:", err?.message || err?.code || JSON.stringify(err) || err)
-      setError(err?.message || "Failed to load forecasts")
+      // Don't surface errors from a silent background revalidation over good cached data.
+      if (!opts?.silent) setError(err?.message || "Failed to load forecasts")
     } finally {
       setLoading(false)
     }
@@ -715,10 +773,37 @@ export default function ForecastPage() {
 
   const fetchVersionRef = useRef(0)
 
+  // Keep selectedBranch in sync with the URL immediately so Back/forward navigation feels
+  // instant, instead of waiting for the heavier fetchData effect to re-fetch profile/branches.
+  useEffect(() => {
+    if (branchFromUrl) {
+      setSelectedBranch(branchFromUrl)
+    } else if (profile?.role === "hq_admin" || profile?.role === "region_admin") {
+      setSelectedBranch(ALL_BRANCHES_ID)
+    }
+  }, [branchFromUrl, profile])
+
   useEffect(() => {
     if (!selectedBranch) return
     const branchCount = selectedBranch === ALL_BRANCHES_ID ? branches.length : 0
-    const key = `${selectedBranch}-${selectedRegionId}-${currentYear}-${currentMonth}-${branchCount}`
+    const key = buildScopeKey(selectedBranch, selectedRegionId, currentYear, currentMonth, branchCount)
+    const cached = forecastCacheRef.current.get(key)
+    if (cached) {
+      // Restore instantly for snappy Back/forward navigation; revalidate silently in the background.
+      setForecasts(cached.forecasts)
+      setRawForecastRows(cached.rawForecastRows)
+      setMonthStatuses(cached.monthStatuses)
+      setEditedCells(cached.editedCells)
+      setLoading(false)
+      setError(null)
+      setActiveScopeKey(key)
+      lastFetchedKeyRef.current = key
+      const version = ++fetchVersionRef.current
+      loadForecasts({ silent: true }).then(() => {
+        if (fetchVersionRef.current !== version) lastFetchedKeyRef.current = null
+      })
+      return
+    }
     if (lastFetchedKeyRef.current === key) return
     lastFetchedKeyRef.current = key
     // Increment version so stale in-flight fetches are discarded
@@ -728,6 +813,8 @@ export default function ForecastPage() {
       if (fetchVersionRef.current !== version) {
         // A newer fetch is in progress; re-trigger with current selectedBranch
         lastFetchedKeyRef.current = null
+      } else {
+        setActiveScopeKey(key)
       }
     })
   }, [selectedBranch, selectedRegionId, currentYear, currentMonth, branches.length, loadForecasts])
@@ -1808,7 +1895,17 @@ export default function ForecastPage() {
                   Each branch&apos;s contribution to revenue and expenses. Compare side by side.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <Collapsible open={branchContributionOpen} onOpenChange={setBranchContributionOpen}>
+                <div className="flex justify-end px-6 pt-1">
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-7 gap-1 text-muted-foreground">
+                      {branchContributionOpen ? "Hide" : "Show"}
+                      <ChevronDown className={cn("size-4 transition-transform duration-200", branchContributionOpen ? "rotate-180" : "rotate-0")} />
+                    </Button>
+                  </CollapsibleTrigger>
+                </div>
+                <CollapsibleContent>
+                  <CardContent>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[600px] text-sm">
                     <thead>
@@ -1874,7 +1971,9 @@ export default function ForecastPage() {
                     </tbody>
                   </table>
                 </div>
-              </CardContent>
+                  </CardContent>
+                </CollapsibleContent>
+              </Collapsible>
             </Card>
           )}
 
@@ -1927,7 +2026,7 @@ export default function ForecastPage() {
               {selectedBranch === ALL_BRANCHES_ID && profile?.role !== "branch_user" && (
                 <div className="mb-4 flex items-center gap-2 text-sm text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/40 rounded-md p-3 border border-amber-200 dark:border-amber-800">
                   <Pencil className="h-4 w-4 shrink-0" />
-                  <span>To edit forecast values, select a specific branch from the dropdown above or click a branch name in the Branch contribution table.</span>
+                  <span>To edit forecast values, select a specific branch from the dropdown above or click a branch name in the Branch contribution table. Hover any line item to see its branch-by-branch breakdown.</span>
                 </div>
               )}
               {selectedBranch !== ALL_BRANCHES_ID && (
@@ -1955,22 +2054,34 @@ export default function ForecastPage() {
                   />
                 </TabsContent>
                 <TabsContent value="table" className="mt-4">
-                  <ForecastTable
-                    forecasts={filteredForecasts}
-                    currentMonth={currentMonth}
-                    onUpdateForecast={handleUpdateForecast}
-                    editable={selectedBranch !== ALL_BRANCHES_ID}
-                    lastMonthActuals={lastMonthActuals}
-                    editedCells={editedCells}
-                    monthStatuses={monthStatuses}
-                    lockedMonths={completedMonths}
-                    onCompleteMonth={canCompleteForecastMonth ? (month, note) => setForecastMonthStatus(month, true, note) : undefined}
-                    onUnlockMonth={canUnlockForecastMonth ? (month, note) => setForecastMonthStatus(month, false, note) : undefined}
-                    monthActionLoading={monthStatusActionMonth}
-                    workingDaysMap={workingDays}
-                    onUpdateWorkingDays={profile?.role === "hq_admin" ? handleUpdateWorkingDays : undefined}
-                    currentYear={currentYear}
-                  />
+                  {loading && activeScopeKey !== buildScopeKey(selectedBranch, selectedRegionId, currentYear, currentMonth, selectedBranch === ALL_BRANCHES_ID ? branches.length : 0) ? (
+                    <div className="space-y-2 py-2" aria-hidden>
+                      {Array.from({ length: 10 }).map((_, i) => (
+                        <Skeleton key={i} className="h-9 w-full" />
+                      ))}
+                    </div>
+                  ) : (
+                    <ForecastTable
+                      forecasts={filteredForecasts}
+                      currentMonth={currentMonth}
+                      onUpdateForecast={handleUpdateForecast}
+                      editable={selectedBranch !== ALL_BRANCHES_ID}
+                      lastMonthActuals={lastMonthActuals}
+                      editedCells={editedCells}
+                      monthStatuses={monthStatuses}
+                      lockedMonths={completedMonths}
+                      onCompleteMonth={canCompleteForecastMonth ? (month, note) => setForecastMonthStatus(month, true, note) : undefined}
+                      onUnlockMonth={canUnlockForecastMonth ? (month, note) => setForecastMonthStatus(month, false, note) : undefined}
+                      monthActionLoading={monthStatusActionMonth}
+                      workingDaysMap={workingDays}
+                      onUpdateWorkingDays={profile?.role === "hq_admin" ? handleUpdateWorkingDays : undefined}
+                      currentYear={currentYear}
+                      isSummary={selectedBranch === ALL_BRANCHES_ID}
+                      summaryBranchIds={summaryBranchIds}
+                      branchMeta={branchMeta}
+                      onSelectBranch={handleSelectBranch}
+                    />
+                  )}
                 </TabsContent>
               </Tabs>
             </CardContent>
