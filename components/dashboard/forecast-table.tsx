@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, Fragment } from "react"
+import { useState, useEffect, Fragment } from "react"
 import {
   Table,
   TableBody,
@@ -53,6 +53,8 @@ import {
   getOntarioWorkingDays
 } from "@/lib/forecasting"
 import { cn } from "@/lib/utils"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import { createClient } from "@/lib/supabase/client"
 
 const KPI_REVENUE = "TOTAL NET REVENUE"
 const KPI_EXPENSE_LINES = new Set(["TOTAL EXPENSES", "TOTAL OVERHEAD ALLOCATIONS"])
@@ -278,6 +280,149 @@ function isKpiLine(description: string) {
   return d === KPI_REVENUE || KPI_EXPENSE_LINES.has(d)
 }
 
+// ── Total Company drill-down: per-branch breakdown on hover ──
+type BranchMeta = { id: string; name: string; code: string }
+type BranchBreakdownRow = { branchId: string; name: string; code: string; forecast: number }
+
+// Cache so re-hovering the same line doesn't refetch. Keyed by
+// description + year + month + sorted branch ids (scope changes with region filter).
+const breakdownCache = new Map<string, BranchBreakdownRow[]>()
+
+function BranchBreakdownContent({
+  description,
+  summaryBranchIds,
+  branchMeta,
+  currentYear,
+  currentMonth,
+  onSelectBranch,
+}: {
+  description: string
+  summaryBranchIds: string[]
+  branchMeta: BranchMeta[]
+  currentYear: number
+  currentMonth: number
+  onSelectBranch?: (branchId: string, description: string) => void
+}) {
+  const [rows, setRows] = useState<BranchBreakdownRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [errored, setErrored] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    const scopeKey = [...summaryBranchIds].sort().join(",")
+    const cacheKey = `${description}|${currentYear}|${currentMonth}|${scopeKey}`
+
+    const cached = breakdownCache.get(cacheKey)
+    if (cached) {
+      setRows(cached)
+      setLoading(false)
+      setErrored(false)
+      return
+    }
+
+    const run = async () => {
+      try {
+        const supabase = createClient()
+        const { data, error } = await supabase
+          .from("forecasts")
+          .select("branch_id, forecast_value")
+          .in("branch_id", summaryBranchIds)
+          .eq("year", currentYear)
+          .eq("month", currentMonth)
+          .eq("description", description)
+
+        if (cancelled) return
+        if (error) throw error
+
+        const byBranch = new Map<string, number>()
+        for (const r of data ?? []) {
+          byBranch.set(r.branch_id, Number(r.forecast_value) || 0)
+        }
+
+        const merged: BranchBreakdownRow[] = branchMeta
+          .filter((b) => summaryBranchIds.includes(b.id))
+          .map((b) => ({
+            branchId: b.id,
+            name: b.name,
+            code: b.code,
+            forecast: byBranch.get(b.id) ?? 0,
+          }))
+          .sort((a, b) => {
+            const na = parseInt(a.code, 10)
+            const nb = parseInt(b.code, 10)
+            if (!isNaN(na) && !isNaN(nb)) return na - nb
+            return a.code.localeCompare(b.code)
+          })
+
+        breakdownCache.set(cacheKey, merged)
+        if (!cancelled) {
+          setRows(merged)
+          setErrored(false)
+        }
+      } catch {
+        if (!cancelled) setErrored(true)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [description, currentYear, currentMonth, summaryBranchIds, branchMeta])
+
+  const total = rows.reduce((sum, r) => sum + r.forecast, 0)
+
+  return (
+    <div className="w-80 max-h-[60vh] overflow-y-auto">
+      <div className="px-3 py-2 border-b bg-muted sticky top-0">
+        <p className="text-sm font-semibold leading-tight">{description}</p>
+        <p className="text-[11px] text-muted-foreground">
+          Branch breakdown · {getShortMonthName(currentMonth)} {currentYear}
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="p-3 space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-5 bg-muted rounded animate-pulse" />
+          ))}
+        </div>
+      ) : errored ? (
+        <p className="p-3 text-sm text-destructive">Could not load branch breakdown.</p>
+      ) : rows.length === 0 ? (
+        <p className="p-3 text-sm text-muted-foreground">No branches in scope.</p>
+      ) : (
+        <ul className="divide-y">
+          {rows.map((r) => (
+            <li key={r.branchId}>
+              <button
+                type="button"
+                disabled={!onSelectBranch}
+                onClick={() => onSelectBranch?.(r.branchId, description)}
+                className="w-full text-left px-3 py-1.5 flex items-center justify-between gap-2 hover:bg-accent transition-colors cursor-pointer disabled:cursor-default"
+              >
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium truncate">{r.name}</span>
+                  <span className="block text-[10px] uppercase text-muted-foreground">{r.code}</span>
+                </span>
+                <span className="text-sm font-semibold tabular-nums shrink-0">
+                  {formatCurrency(r.forecast)}
+                </span>
+              </button>
+            </li>
+          ))}
+          <li className="px-3 py-2 flex items-center justify-between gap-2 bg-muted sticky bottom-0">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
+            <span className="text-sm font-bold tabular-nums">{formatCurrency(total)}</span>
+          </li>
+        </ul>
+      )}
+    </div>
+  )
+}
+
 type ViewMode = "revenue" | "expenses" | "both"
 
 type ForecastTableProps = {
@@ -301,6 +446,11 @@ type ForecastTableProps = {
   workingDaysMap?: Record<number, number>
   onUpdateWorkingDays?: (month: number, days: number) => Promise<void>
   currentYear?: number
+  // Total Company drill-down
+  isSummary?: boolean
+  summaryBranchIds?: string[]
+  branchMeta?: BranchMeta[]
+  onSelectBranch?: (branchId: string, description: string) => void
 }
 
 type EditingCell = {
@@ -324,6 +474,10 @@ export function ForecastTable({
   workingDaysMap = {},
   onUpdateWorkingDays,
   currentYear = 2026,
+  isSummary = false,
+  summaryBranchIds = [],
+  branchMeta = [],
+  onSelectBranch,
 }: ForecastTableProps) {
   const [editingCell, setEditingCell] = useState<EditingCell>(null)
   const [editValue, setEditValue] = useState<string>("")
@@ -684,11 +838,33 @@ export function ForecastTable({
                 key={description}
                 className={cn("flex w-max min-w-full border-b group transition-colors", rowBg)}
               >
-                <div className={cn("w-[220px] min-w-[220px] shrink-0 sticky left-0 z-20 px-3 py-3 border-r font-medium shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] whitespace-normal break-words", isEven ? "bg-background" : "bg-secondary", "group-hover:bg-accent")}>
-                  <span className={cn(isSubtotalDescription(description) && "font-bold text-foreground")}>
-                    {description}
-                  </span>
-                </div>
+                {isSummary ? (
+                  <HoverCard openDelay={100} closeDelay={200}>
+                    <HoverCardTrigger asChild>
+                      <div className={cn("w-[220px] min-w-[220px] shrink-0 sticky left-0 z-20 px-3 py-3 border-r font-medium shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] whitespace-normal break-words cursor-help", isEven ? "bg-background" : "bg-secondary", "group-hover:bg-accent")}>
+                        <span className={cn("underline decoration-dotted underline-offset-4 decoration-muted-foreground/50", isSubtotalDescription(description) && "font-bold text-foreground")}>
+                          {description}
+                        </span>
+                      </div>
+                    </HoverCardTrigger>
+                    <HoverCardContent side="right" align="start" className="w-auto p-0">
+                      <BranchBreakdownContent
+                        description={description}
+                        summaryBranchIds={summaryBranchIds}
+                        branchMeta={branchMeta}
+                        currentYear={currentYear}
+                        currentMonth={currentMonth}
+                        onSelectBranch={onSelectBranch}
+                      />
+                    </HoverCardContent>
+                  </HoverCard>
+                ) : (
+                  <div className={cn("w-[220px] min-w-[220px] shrink-0 sticky left-0 z-20 px-3 py-3 border-r font-medium shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] whitespace-normal break-words", isEven ? "bg-background" : "bg-secondary", "group-hover:bg-accent")}>
+                    <span className={cn(isSubtotalDescription(description) && "font-bold text-foreground")}>
+                      {description}
+                    </span>
+                  </div>
+                )}
                 {months.map(month => {
                   const f = descForecasts.find(m => m.month === month)
                   const isCurrent = month === currentMonth
