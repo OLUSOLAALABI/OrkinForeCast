@@ -270,6 +270,7 @@ function recomputeAllSubtotals(forecasts: ForecastResult[], isSummary = false): 
 export default function ForecastPage() {
   const searchParams = useSearchParams()
   const branchFromUrl = searchParams.get("branch")
+  const monthFromUrl = Number(searchParams.get("month"))
   const router = useRouter()
   const [branches, setBranches] = useState<Branch[]>([])
   // Default to summary (all branches) so HQ/Region Admin see rollup immediately, not "Select a Branch"
@@ -288,7 +289,9 @@ export default function ForecastPage() {
   const [showMethodology, setShowMethodology] = useState<boolean>(false)
   const [currentYear, setCurrentYear] = useState(2026)
   const [currentMonth, setCurrentMonth] = useState(() => {
-    const m = new Date().getMonth() + 1
+    const m = Number.isInteger(monthFromUrl) && monthFromUrl >= 1 && monthFromUrl <= 12
+      ? monthFromUrl
+      : new Date().getMonth() + 1
     return m >= 1 && m <= 12 ? m : 1
   })
   const supabase = createClient()
@@ -343,9 +346,9 @@ export default function ForecastPage() {
 
   const handleSelectBranch = useCallback(
     (branchId: string) => {
-      router.push(`/dashboard/forecast?branch=${branchId}`, { scroll: false })
+      router.push(`/dashboard/forecast?branch=${branchId}&month=${currentMonth}`, { scroll: false })
     },
-    [router]
+    [router, currentMonth]
   )
 
   // Per-branch breakdown for region/HQ summary view (revenue + expenses + contribution b/4 overhead for current month)
@@ -782,6 +785,12 @@ export default function ForecastPage() {
       setSelectedBranch(ALL_BRANCHES_ID)
     }
   }, [branchFromUrl, profile])
+
+  useEffect(() => {
+    if (Number.isInteger(monthFromUrl) && monthFromUrl >= 1 && monthFromUrl <= 12) {
+      setCurrentMonth(monthFromUrl)
+    }
+  }, [monthFromUrl])
 
   useEffect(() => {
     if (!selectedBranch) return
@@ -2064,6 +2073,7 @@ export default function ForecastPage() {
                     <ForecastTable
                       forecasts={filteredForecasts}
                       currentMonth={currentMonth}
+                      autoScrollKey={`${selectedBranch}-${currentYear}-${currentMonth}`}
                       onUpdateForecast={handleUpdateForecast}
                       editable={selectedBranch !== ALL_BRANCHES_ID}
                       lastMonthActuals={lastMonthActuals}
