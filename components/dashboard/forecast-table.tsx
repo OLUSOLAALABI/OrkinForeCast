@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, Fragment } from "react"
+import { useState, useEffect, useRef, Fragment } from "react"
 import {
   Table,
   TableBody,
@@ -446,6 +446,7 @@ type ForecastTableProps = {
   workingDaysMap?: Record<number, number>
   onUpdateWorkingDays?: (month: number, days: number) => Promise<void>
   currentYear?: number
+  autoScrollKey?: string
   // Total Company drill-down
   isSummary?: boolean
   summaryBranchIds?: string[]
@@ -474,6 +475,7 @@ export function ForecastTable({
   workingDaysMap = {},
   onUpdateWorkingDays,
   currentYear = 2026,
+  autoScrollKey,
   isSummary = false,
   summaryBranchIds = [],
   branchMeta = [],
@@ -500,6 +502,7 @@ export function ForecastTable({
   const [showLastYear, setShowLastYear] = useState(true)
   const [showLastMonth, setShowLastMonth] = useState(true)
   const visibleMetricCount = [showForecast, showBudget, showLastYear, showLastMonth].filter(Boolean).length
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // Filter forecasts by view mode
   const filteredForecasts = forecasts.filter((f) => {
@@ -546,6 +549,28 @@ export function ForecastTable({
   const months = showAllMonths
     ? Array.from({ length: 12 }, (_, i) => i + 1)
     : [currentMonth]
+
+  useEffect(() => {
+    if (!showAllMonths) return
+
+    const scrollContainer = scrollContainerRef.current
+    const monthAnchor = scrollContainer?.querySelector<HTMLElement>(`[data-month-anchor="${currentMonth}"]`)
+    const stickyDescription = scrollContainer?.querySelector<HTMLElement>("[data-sticky-description]")
+    if (!scrollContainer || !monthAnchor) return
+
+    const frame = window.requestAnimationFrame(() => {
+      const stickyWidth = stickyDescription?.offsetWidth ?? 220
+      const maxScrollLeft = scrollContainer.scrollWidth - scrollContainer.clientWidth
+      const targetScrollLeft = Math.min(
+        maxScrollLeft,
+        Math.max(0, monthAnchor.offsetLeft - stickyWidth)
+      )
+
+      scrollContainer.scrollTo({ left: targetScrollLeft, behavior: "auto" })
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [autoScrollKey, currentMonth, showAllMonths, visibleMetricCount])
 
   const handleCellClick = (description: string, month: number, currentValue: number) => {
     if (!editable || !onUpdateForecast) return
@@ -721,15 +746,16 @@ export function ForecastTable({
         </div>
       </div>
 
-        <div className="overflow-auto max-h-[80vh] border rounded-lg text-sm w-0 min-w-full">
+        <div ref={scrollContainerRef} className="overflow-auto max-h-[80vh] border rounded-lg text-sm w-0 min-w-full">
           {/* ── Header row 1: Month names ── */}
           <div className="flex w-max min-w-full sticky top-0 z-30 bg-muted border-b font-bold">
-            <div className="w-[220px] min-w-[220px] shrink-0 sticky left-0 z-40 bg-muted px-3 py-2 border-r flex items-center justify-center font-bold shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] whitespace-normal break-words">
+            <div data-sticky-description className="w-[220px] min-w-[220px] shrink-0 sticky left-0 z-40 bg-muted px-3 py-2 border-r flex items-center justify-center font-bold shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] whitespace-normal break-words">
               Description
             </div>
             {months.map(month => (
               <div
                 key={month}
+                data-month-anchor={month}
                 className={cn(
                   "shrink-0 text-center px-2 py-2 border-l",
                   month === currentMonth && "border-b-2 border-b-primary"
