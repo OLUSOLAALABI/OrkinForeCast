@@ -21,6 +21,7 @@ import path from "path"
 import { fileURLToPath } from "url"
 import { createClient } from "@supabase/supabase-js"
 import * as XLSX from "xlsx"
+import { normalizeDescription } from "./description-utils.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(__dirname, "..")
@@ -140,12 +141,6 @@ function detectYearFromSheet(rows) {
   return null
 }
 
-// Descriptions that appear in multiple P&L sections.
-const DUPLICATE_RENAMES = {
-  "COMMERCIAL BED BUG REVENUE": { first: "COMMERCIAL BED BUG REVENUE (recur)", second: "COMMERCIAL BED BUG REVENUE" },
-  "DEPRECIATION": { first: "DEPRECIATION", second: "DEPRECIATION (fixed)" },
-}
-
 function rowsToActualsWithHeader(rows, year, header) {
   const actuals = []
   const seenDescs = new Map()
@@ -155,13 +150,7 @@ function rowsToActualsWithHeader(rows, year, header) {
     let description = row[descriptionCol] != null ? String(row[descriptionCol]).trim() : ""
     if (!description || /^\d+$/.test(description)) continue
 
-    const upperDesc = description.toUpperCase()
-    const rename = DUPLICATE_RENAMES[upperDesc]
-    if (rename) {
-      const count = (seenDescs.get(upperDesc) || 0) + 1
-      seenDescs.set(upperDesc, count)
-      description = count === 1 ? rename.first : rename.second
-    }
+    description = normalizeDescription(description, seenDescs)
 
     for (let m = 0; m < 12; m++) {
       const colIdx = monthCols[m]
@@ -181,13 +170,7 @@ function rowsToActuals(rows, year) {
     let description = row && row[0] != null ? String(row[0]).trim() : ""
     if (!description) continue
 
-    const upperDesc = description.toUpperCase()
-    const rename = DUPLICATE_RENAMES[upperDesc]
-    if (rename) {
-      const count = (seenDescs.get(upperDesc) || 0) + 1
-      seenDescs.set(upperDesc, count)
-      description = count === 1 ? rename.first : rename.second
-    }
+    description = normalizeDescription(description, seenDescs)
 
     for (let m = 0; m < 12; m++) {
       const raw = row[m + 1]

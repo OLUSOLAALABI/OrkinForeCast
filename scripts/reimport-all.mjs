@@ -15,6 +15,7 @@ import path from "path"
 import { fileURLToPath } from "url"
 import { createClient } from "@supabase/supabase-js"
 import * as XLSX from "xlsx"
+import { normalizeDescription } from "./description-utils.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(__dirname, "..")
@@ -210,21 +211,6 @@ function shouldSkip(tabName) {
 // DESCRIPTION HANDLING
 // ═══════════════════════════════════════════════════════════
 
-// Descriptions that appear twice in P&L — disambiguate by occurrence order
-const DUPLICATE_RENAMES = {
-  "COMMERCIAL BED BUG REVENUE": { first: "COMMERCIAL BED BUG REVENUE (recur)", second: "COMMERCIAL BED BUG REVENUE" },
-  "DEPRECIATION": { first: "DEPRECIATION", second: "DEPRECIATION (fixed)" },
-}
-
-// Normalize variant description names to canonical form
-const DESCRIPTION_NORMALIZE = {
-  "COMMERCIAL BED BUG REVENUE (odd job)": "COMMERCIAL BED BUG REVENUE",
-  "PAYROLL SERVICE FEES": "ULTIPRO COST",
-  "ADMIN INCENTIVE PAID": "MANAGERS INCENTIVES PAID",
-  "PC MGMT FAILURE": "PC COMM MGMT FAILURE",
-  "ULTIPRO FEES": "ULTIPRO COST",
-}
-
 const SKIP_DESCRIPTIONS = new Set([
   "line of bus", "district", "gl", "period", "orkin canada", "spare row", "*",
 ])
@@ -318,20 +304,7 @@ function parseSheet(rows, layout) {
     if (!desc || desc.length < 2 || /^\d+$/.test(desc)) continue
     if (SKIP_DESCRIPTIONS.has(desc.toLowerCase())) continue
 
-    // Normalize known variant names
-    const normKey = Object.keys(DESCRIPTION_NORMALIZE).find(
-      (k) => k.toUpperCase() === desc.toUpperCase()
-    )
-    if (normKey) desc = DESCRIPTION_NORMALIZE[normKey]
-
-    // Handle duplicate descriptions (same name appears twice in P&L)
-    const upperDesc = desc.toUpperCase()
-    const rename = DUPLICATE_RENAMES[upperDesc]
-    if (rename) {
-      const count = (seenDescs.get(upperDesc) || 0) + 1
-      seenDescs.set(upperDesc, count)
-      desc = count === 1 ? rename.first : rename.second
-    }
+    desc = normalizeDescription(desc, seenDescs)
 
     for (let m = 0; m < 12; m++) {
       const value = toNum(row[monthCols[m]])
