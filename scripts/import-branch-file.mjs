@@ -19,6 +19,7 @@ import path from "path"
 import { fileURLToPath } from "url"
 import { createClient } from "@supabase/supabase-js"
 import * as XLSX from "xlsx"
+import { normalizeDescription } from "./description-utils.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.join(__dirname, "..")
@@ -134,13 +135,6 @@ function findDescriptionAndMonthHeader(rows) {
   return fallback ? addTotal(fallback) : null
 }
 
-// Descriptions that appear in multiple P&L sections.
-// Map: original name → { first: rename for 1st occurrence, second: rename for 2nd occurrence }
-const DUPLICATE_RENAMES = {
-  "COMMERCIAL BED BUG REVENUE": { first: "COMMERCIAL BED BUG REVENUE (recur)", second: "COMMERCIAL BED BUG REVENUE" },
-  "DEPRECIATION": { first: "DEPRECIATION", second: "DEPRECIATION (fixed)" },
-}
-
 function rowsToForecasts(rows, year, header) {
   const out = []
   const seenDescs = new Map() // track how many times each description has been seen
@@ -150,14 +144,7 @@ function rowsToForecasts(rows, year, header) {
     let description = row[descriptionCol] != null ? String(row[descriptionCol]).trim() : ""
     if (!description || description.length < 2 || /^\d+$/.test(description) || SKIP_DESCRIPTIONS.has(description.toLowerCase())) continue
 
-    // Disambiguate known duplicate descriptions
-    const upperDesc = description.toUpperCase()
-    const rename = DUPLICATE_RENAMES[upperDesc]
-    if (rename) {
-      const count = (seenDescs.get(upperDesc) || 0) + 1
-      seenDescs.set(upperDesc, count)
-      description = count === 1 ? rename.first : rename.second
-    }
+    description = normalizeDescription(description, seenDescs)
 
     const monthVals = monthCols.map((c) => toNum(row[c]))
     const hasAnyMonth = monthVals.some((v) => v !== null)
@@ -310,3 +297,4 @@ main().catch((err) => {
   console.error(err)
   process.exit(1)
 })
+
