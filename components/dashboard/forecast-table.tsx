@@ -282,7 +282,14 @@ function isKpiLine(description: string) {
 
 // ── Total Company drill-down: per-branch breakdown on hover ──
 type BranchMeta = { id: string; name: string; code: string }
-type BranchBreakdownRow = { branchId: string; name: string; code: string; forecast: number }
+type BranchBreakdownRow = {
+  branchId: string
+  name: string
+  code: string
+  forecast: number
+  budget: number
+  actuals?: number
+}
 
 // Cache so re-hovering the same line doesn't refetch. Keyed by
 // description + year + month + sorted branch ids (scope changes with region filter).
@@ -294,6 +301,7 @@ function BranchBreakdownContent({
   branchMeta,
   currentYear,
   currentMonth,
+  breakdownVersion,
   onSelectBranch,
 }: {
   description: string
@@ -301,6 +309,7 @@ function BranchBreakdownContent({
   branchMeta: BranchMeta[]
   currentYear: number
   currentMonth: number
+  breakdownVersion: number
   onSelectBranch?: (branchId: string, description: string) => void
 }) {
   const [rows, setRows] = useState<BranchBreakdownRow[]>([])
@@ -310,7 +319,7 @@ function BranchBreakdownContent({
   useEffect(() => {
     let cancelled = false
     const scopeKey = [...summaryBranchIds].sort().join(",")
-    const cacheKey = `${description}|${currentYear}|${currentMonth}|${scopeKey}`
+    const cacheKey = `${description}|${currentYear}|${currentMonth}|${scopeKey}|${breakdownVersion}`
 
     const cached = breakdownCache.get(cacheKey)
     if (cached) {
@@ -323,20 +332,39 @@ function BranchBreakdownContent({
     const run = async () => {
       try {
         const supabase = createClient()
-        const { data, error } = await supabase
-          .from("forecasts")
-          .select("branch_id, forecast_value")
-          .in("branch_id", summaryBranchIds)
-          .eq("year", currentYear)
-          .eq("month", currentMonth)
-          .eq("description", description)
+        const [forecastResult, actualsResult] = await Promise.all([
+          supabase
+            .from("forecasts")
+            .select("branch_id, forecast_value, budget_value")
+            .in("branch_id", summaryBranchIds)
+            .eq("year", currentYear)
+            .eq("month", currentMonth)
+            .eq("description", description),
+          supabase
+            .from("last_month_actuals")
+            .select("branch_id, value")
+            .in("branch_id", summaryBranchIds)
+            .eq("year", currentYear)
+            .eq("month", currentMonth)
+            .eq("description", description),
+        ])
 
         if (cancelled) return
-        if (error) throw error
+        if (forecastResult.error) throw forecastResult.error
+        if (actualsResult.error) throw actualsResult.error
 
-        const byBranch = new Map<string, number>()
-        for (const r of data ?? []) {
-          byBranch.set(r.branch_id, Number(r.forecast_value) || 0)
+        const forecastByBranch = new Map<string, { forecast: number; budget: number }>()
+        for (const row of forecastResult.data ?? []) {
+          forecastByBranch.set(row.branch_id, {
+            forecast: Number(row.forecast_value) || 0,
+            budget: Number(row.budget_value) || 0,
+          })
+        }
+
+        const actualsByBranch = new Map<string, number>()
+        for (const row of actualsResult.data ?? []) {
+          if (!row.branch_id) continue
+          actualsByBranch.set(row.branch_id, Number(row.value) || 0)
         }
 
         const merged: BranchBreakdownRow[] = branchMeta
@@ -345,7 +373,9 @@ function BranchBreakdownContent({
             branchId: b.id,
             name: b.name,
             code: b.code,
-            forecast: byBranch.get(b.id) ?? 0,
+            forecast: forecastByBranch.get(b.id)?.forecast ?? 0,
+            budget: forecastByBranch.get(b.id)?.budget ?? 0,
+            actuals: actualsByBranch.get(b.id),
           }))
           .sort((a, b) => {
             const na = parseInt(a.code, 10)
@@ -370,12 +400,17 @@ function BranchBreakdownContent({
     return () => {
       cancelled = true
     }
-  }, [description, currentYear, currentMonth, summaryBranchIds, branchMeta])
+  }, [description, currentYear, currentMonth, summaryBranchIds, branchMeta, breakdownVersion])
 
-  const total = rows.reduce((sum, r) => sum + r.forecast, 0)
+  const totals = rows.reduce((sum, row) => ({
+    forecast: sum.forecast + row.forecast,
+    budget: sum.budget + row.budget,
+    actuals: sum.actuals + (row.actuals ?? 0),
+    actualsCount: sum.actualsCount + (row.actuals === undefined ? 0 : 1),
+  }), { forecast: 0, budget: 0, actuals: 0, actualsCount: 0 })
 
   return (
-    <div className="w-80 max-h-[60vh] overflow-y-auto">
+    <div className="w-[32rem] max-h-[60vh] overflow-y-auto">
       <div className="px-3 py-2 border-b bg-muted sticky top-0">
         <p className="text-sm font-semibold leading-tight">{description}</p>
         <p className="text-[11px] text-muted-foreground">
@@ -394,30 +429,44 @@ function BranchBreakdownContent({
       ) : rows.length === 0 ? (
         <p className="p-3 text-sm text-muted-foreground">No branches in scope.</p>
       ) : (
-        <ul className="divide-y">
-          {rows.map((r) => (
-            <li key={r.branchId}>
-              <button
-                type="button"
-                disabled={!onSelectBranch}
-                onClick={() => onSelectBranch?.(r.branchId, description)}
-                className="w-full text-left px-3 py-1.5 flex items-center justify-between gap-2 hover:bg-accent transition-colors cursor-pointer disabled:cursor-default"
-              >
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium truncate">{r.name}</span>
-                  <span className="block text-[10px] uppercase text-muted-foreground">{r.code}</span>
-                </span>
-                <span className="text-sm font-semibold tabular-nums shrink-0">
-                  {formatCurrency(r.forecast)}
-                </span>
-              </button>
+        <div>
+          <div className="grid grid-cols-[minmax(0,1fr)_96px_96px_96px] gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground border-b bg-background sticky top-[53px]">
+            <span>Branch</span>
+            <span className="text-right">Forecast</span>
+            <span className="text-right">Budget</span>
+            <span className="text-right">Actuals</span>
+          </div>
+          <ul className="divide-y">
+            {rows.map((r) => (
+              <li key={r.branchId}>
+                <button
+                  type="button"
+                  disabled={!onSelectBranch}
+                  onClick={() => onSelectBranch?.(r.branchId, description)}
+                  className="grid w-full grid-cols-[minmax(0,1fr)_96px_96px_96px] gap-2 px-3 py-2 text-left hover:bg-accent transition-colors cursor-pointer disabled:cursor-default"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">{r.name}</span>
+                    <span className="block text-[10px] uppercase text-muted-foreground">{r.code}</span>
+                  </span>
+                  <span className="text-right text-sm font-semibold tabular-nums">{formatCurrency(r.forecast)}</span>
+                  <span className="text-right text-sm tabular-nums text-muted-foreground">{formatCurrency(r.budget)}</span>
+                  <span className="text-right text-sm tabular-nums text-muted-foreground">
+                    {r.actuals === undefined ? "-" : formatCurrency(r.actuals)}
+                  </span>
+                </button>
+              </li>
+            ))}
+            <li className="grid grid-cols-[minmax(0,1fr)_96px_96px_96px] gap-2 px-3 py-2 bg-muted sticky bottom-0">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
+              <span className="text-right text-sm font-bold tabular-nums">{formatCurrency(totals.forecast)}</span>
+              <span className="text-right text-sm font-bold tabular-nums">{formatCurrency(totals.budget)}</span>
+              <span className="text-right text-sm font-bold tabular-nums">
+                {totals.actualsCount === 0 ? "-" : formatCurrency(totals.actuals)}
+              </span>
             </li>
-          ))}
-          <li className="px-3 py-2 flex items-center justify-between gap-2 bg-muted sticky bottom-0">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
-            <span className="text-sm font-bold tabular-nums">{formatCurrency(total)}</span>
-          </li>
-        </ul>
+          </ul>
+        </div>
       )}
     </div>
   )
@@ -451,6 +500,7 @@ type ForecastTableProps = {
   isSummary?: boolean
   summaryBranchIds?: string[]
   branchMeta?: BranchMeta[]
+  breakdownVersion?: number
   onSelectBranch?: (branchId: string, description: string) => void
 }
 
@@ -479,6 +529,7 @@ export function ForecastTable({
   isSummary = false,
   summaryBranchIds = [],
   branchMeta = [],
+  breakdownVersion = 0,
   onSelectBranch,
 }: ForecastTableProps) {
   const [editingCell, setEditingCell] = useState<EditingCell>(null)
@@ -880,6 +931,7 @@ export function ForecastTable({
                         branchMeta={branchMeta}
                         currentYear={currentYear}
                         currentMonth={currentMonth}
+                        breakdownVersion={breakdownVersion}
                         onSelectBranch={onSelectBranch}
                       />
                     </HoverCardContent>
