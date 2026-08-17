@@ -297,6 +297,7 @@ export default function ForecastPage() {
   const supabase = createClient()
   const lastFetchedKeyRef = useRef<string | null>(null)
   const [lastMonthActuals, setLastMonthActuals] = useState<Map<string, number>>(new Map())
+  const [breakdownVersion, setBreakdownVersion] = useState(0)
   const [editedCells, setEditedCells] = useState<Set<string>>(new Set())
   const [monthStatuses, setMonthStatuses] = useState<Record<number, ForecastMonthStatus>>({})
   const [monthStatusActionMonth, setMonthStatusActionMonth] = useState<number | null>(null)
@@ -878,6 +879,7 @@ export default function ForecastPage() {
         map.set(`${row.description}\t${row.month}`, Number(row.value))
       }
       setLastMonthActuals(map)
+      setBreakdownVersion((current) => current + 1)
     } catch (err) {
       console.error("Error fetching last month actuals:", err)
     }
@@ -2089,6 +2091,7 @@ export default function ForecastPage() {
                       isSummary={selectedBranch === ALL_BRANCHES_ID}
                       summaryBranchIds={summaryBranchIds}
                       branchMeta={branchMeta}
+                      breakdownVersion={breakdownVersion}
                       onSelectBranch={handleSelectBranch}
                     />
                   )}
