@@ -44,7 +44,6 @@ import {
   type ForecastResult,
   getShortMonthName,
   formatCurrency,
-  formatPercent,
   isSubtotalDescription,
   isLeafDescription,
   normDesc,
@@ -273,6 +272,22 @@ export const TEMPLATE_ORDER = [
 // Normalize for template matching (handles " - " vs ". " etc.)
 export function normForMatch(s: string) {
   return normDesc(s).replace(/[\s\-\.]+/g, " ").replace(/\s+/g, " ").trim()
+}
+
+const EXPENSE_PERCENT_START_INDEX = TEMPLATE_ORDER.findIndex(
+  (description) => normForMatch(description) === normForMatch("DIVISION MANAGER")
+)
+
+function shouldShowExpensePercentage(description: string) {
+  const templateIndex = TEMPLATE_ORDER.findIndex(
+    (entry) => normForMatch(entry) === normForMatch(description)
+  )
+  return templateIndex >= EXPENSE_PERCENT_START_INDEX
+}
+
+function formatRevenueShare(value: number | undefined, revenue: number | undefined) {
+  if (value === undefined || revenue === undefined || Math.abs(revenue) < 0.005) return null
+  return `${((value / revenue) * 100).toFixed(1)}%`
 }
 
 function isKpiLine(description: string) {
@@ -712,6 +727,51 @@ export function ForecastTable({
     return true
   }
 
+  const totalNetRevenueRows = forecasts.filter((forecast) => normDesc(forecast.description) === KPI_REVENUE)
+  const forecastRevenueByMonth = new Map<number, number>()
+  const budgetRevenueByMonth = new Map<number, number>()
+  const lastYearRevenueByMonth = new Map<number, number>()
+
+  for (const row of totalNetRevenueRows) {
+    forecastRevenueByMonth.set(row.month, row.forecastValue)
+    budgetRevenueByMonth.set(row.month, row.budgetValue)
+    lastYearRevenueByMonth.set(row.month, row.lastYearValue)
+  }
+
+  const lastMonthRevenueByMonth = new Map<number, number>()
+  for (let month = 1; month <= 12; month++) {
+    const value = lastMonthActuals?.get(`${KPI_REVENUE}\t${month}`)
+    if (value !== undefined) lastMonthRevenueByMonth.set(month, value)
+  }
+
+  const annualForecastRevenue = totalNetRevenueRows.reduce((sum, row) => sum + row.forecastValue, 0)
+  const annualBudgetRevenue = totalNetRevenueRows.reduce((sum, row) => sum + row.budgetValue, 0)
+
+  const renderMetricStack = ({
+    value,
+    revenue,
+    showPercent,
+    amountClassName,
+    containerClassName = "items-center",
+    percentClassName = "text-[10px] text-muted-foreground",
+  }: {
+    value: number | undefined
+    revenue: number | undefined
+    showPercent: boolean
+    amountClassName: string
+    containerClassName?: string
+    percentClassName?: string
+  }) => {
+    const percent = showPercent ? formatRevenueShare(value, revenue) : null
+
+    return (
+      <div className={cn("flex min-h-[2.25rem] flex-col justify-center leading-tight", containerClassName)}>
+        {percent && <span className={percentClassName}>{percent}</span>}
+        <span className={amountClassName}>{value !== undefined ? formatCurrency(value) : "-"}</span>
+      </div>
+    )
+  }
+
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
@@ -907,6 +967,7 @@ export function ForecastTable({
             const descForecasts = filteredForecasts.filter(f => f.description === description)
             const ytdForecast = descForecasts.reduce((sum, f) => sum + f.forecastValue, 0)
             const ytdBudget = descForecasts.reduce((sum, f) => sum + f.budgetValue, 0)
+            const showExpensePercentage = shouldShowExpensePercentage(description)
             const isEven = idx % 2 === 0
             const rowBg = isEven ? "bg-background" : "bg-secondary"
 
@@ -945,6 +1006,7 @@ export function ForecastTable({
                 )}
                 {months.map(month => {
                   const f = descForecasts.find(m => m.month === month)
+                  const lastMonthValue = lastMonthActuals?.get(`${description}\t${month}`)
                   const isCurrent = month === currentMonth
                   const isLocked = lockedMonths.has(month)
                   const isClickable = editable && onUpdateForecast && f && !isLocked && isLeafDescription(description) && !BUDGET_ONLY_DESCS.has(normDesc(description)) && !NON_EDITABLE_SUBTOTALS.has(normDesc(description))
@@ -962,9 +1024,12 @@ export function ForecastTable({
                           )}
                           onClick={() => isClickable && handleCellClick(description, month, f.forecastValue)}
                         >
-                          <span className={cn("text-xs font-semibold", isEdited && "text-violet-600 dark:text-violet-400")}>
-                            {f ? formatCurrency(f.forecastValue) : "-"}
-                          </span>
+                          {renderMetricStack({
+                            value: f?.forecastValue,
+                            revenue: forecastRevenueByMonth.get(month),
+                            showPercent: showExpensePercentage,
+                            amountClassName: cn("text-xs font-semibold", isEdited && "text-violet-600 dark:text-violet-400"),
+                          })}
                           {isClickable && (
                             <Pencil className="h-2.5 w-2.5 absolute top-1 right-1 opacity-0 group-hover/cell:opacity-30" />
                           )}
@@ -972,21 +1037,32 @@ export function ForecastTable({
                       )}
                       {showBudget && (
                         <div className={cn("shrink-0 w-[120px] text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")}>
-                          <span className="text-xs">{f ? formatCurrency(f.budgetValue) : "-"}</span>
+                          {renderMetricStack({
+                            value: f?.budgetValue,
+                            revenue: budgetRevenueByMonth.get(month),
+                            showPercent: showExpensePercentage,
+                            amountClassName: "text-xs",
+                          })}
                         </div>
                       )}
                       {showLastYear && (
                         <div className={cn("shrink-0 w-[120px] text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")}>
-                          <span className="text-xs">{f ? formatCurrency(f.lastYearValue) : "-"}</span>
+                          {renderMetricStack({
+                            value: f?.lastYearValue,
+                            revenue: lastYearRevenueByMonth.get(month),
+                            showPercent: showExpensePercentage,
+                            amountClassName: "text-xs",
+                          })}
                         </div>
                       )}
                       {showLastMonth && (
                         <div className={cn("shrink-0 w-[120px] text-center p-2 text-muted-foreground", isCurrent && "bg-primary/5")}>
-                          <span className="text-xs">{(() => {
-                            const key = `${description}\t${month}`
-                            const val = lastMonthActuals?.get(key)
-                            return val !== undefined ? formatCurrency(val) : "-"
-                          })()}</span>
+                          {renderMetricStack({
+                            value: lastMonthValue,
+                            revenue: lastMonthRevenueByMonth.get(month),
+                            showPercent: showExpensePercentage,
+                            amountClassName: "text-xs",
+                          })}
                         </div>
                       )}
                     </Fragment>
@@ -994,12 +1070,24 @@ export function ForecastTable({
                 })}
                 {showForecast && (
                   <div className="shrink-0 w-[120px] text-right font-bold p-2 bg-muted/10 border-l">
-                    {formatCurrency(ytdForecast)}
+                    {renderMetricStack({
+                      value: ytdForecast,
+                      revenue: annualForecastRevenue,
+                      showPercent: showExpensePercentage,
+                      amountClassName: "text-sm font-bold",
+                      containerClassName: "items-end",
+                    })}
                   </div>
                 )}
                 {showBudget && (
                   <div className="shrink-0 w-[120px] text-right font-bold p-2 bg-muted/10 text-muted-foreground">
-                    {formatCurrency(ytdBudget)}
+                    {renderMetricStack({
+                      value: ytdBudget,
+                      revenue: annualBudgetRevenue,
+                      showPercent: showExpensePercentage,
+                      amountClassName: "text-sm font-bold",
+                      containerClassName: "items-end",
+                    })}
                   </div>
                 )}
               </div>
