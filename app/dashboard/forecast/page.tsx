@@ -200,16 +200,16 @@ const SUBTOTAL_RULES: SubtotalRule[] = [
   { desc: "NET PROFIT", add: ["EXTERNAL PROFIT"], sub: ["FOREIGN EXCHANGE GAIN/LOSS", "ROYALTY FEES", "INTEREST EXPENSE ORKIN", "CANADIAN TAXES", "NON-OP INT EXP/(REV)"] },
 ]
 
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100
+}
+
 /**
- * Recompute all subtotal/total rows from their children for forecast values.
+ * Recompute all subtotal/total rows from their children so every displayed
+ * metric is derived from the same leaf rows in both branch and HQ summary views.
  * Also overrides overhead allocation forecast values with budget (statutory/fixed).
- * 
- * @param isSummary - true when viewing aggregated data across multiple branches.
- *   In summary mode, the DB subtotals are already correct sums so we skip
- *   recalculation (which would double-count due to intermediate subtotals).
- *   We only apply the budget-only overrides and variance recalc.
  */
-function recomputeAllSubtotals(forecasts: ForecastResult[], isSummary = false): ForecastResult[] {
+function recomputeAllSubtotals(forecasts: ForecastResult[]): ForecastResult[] {
   if (forecasts.length === 0) return forecasts
   const result = forecasts.map(f => {
     // Step 1: Override statutory/fixed items forecast with budget
@@ -219,48 +219,109 @@ function recomputeAllSubtotals(forecasts: ForecastResult[], isSummary = false): 
     return { ...f }
   })
 
-  // Step 2: Recompute subtotals per month (single-branch view only)
-  // In summary view, subtotals are already aggregated correctly from the DB.
-  if (!isSummary) {
-    const months = [...new Set(result.map(f => f.month))]
+  // Step 2: Recompute the full subtotal hierarchy month-by-month.
+  const months = [...new Set(result.map(f => f.month))]
 
-    for (const month of months) {
-      // Build lookup: normDesc → index in result array
-      const descMap = new Map<string, number>()
-      result.forEach((f, i) => {
-        if (f.month === month) descMap.set(normDesc(f.description), i)
-      })
+  for (const month of months) {
+    const descMap = new Map<string, number>()
+    result.forEach((f, i) => {
+      if (f.month === month) descMap.set(normDesc(f.description), i)
+    })
 
-      for (const rule of SUBTOTAL_RULES) {
-        const key = normDesc(rule.desc)
-        const idx = descMap.get(key)
-        if (idx === undefined) continue // subtotal row doesn't exist
+    for (const rule of SUBTOTAL_RULES) {
+      const key = normDesc(rule.desc)
+      const idx = descMap.get(key)
+      if (idx === undefined) continue
 
-        let fSum = 0
-        for (const child of rule.add) {
-          const ci = descMap.get(normDesc(child))
-          if (ci !== undefined) { fSum += result[ci].forecastValue }
+      let forecastSum = 0
+      let budgetSum = 0
+      let actualSum = 0
+      let lastMonthSum = 0
+      let lastYearSum = 0
+
+      for (const child of rule.add) {
+        const childIndex = descMap.get(normDesc(child))
+        if (childIndex === undefined) continue
+        forecastSum += result[childIndex].forecastValue
+        budgetSum += result[childIndex].budgetValue
+        actualSum += result[childIndex].actualValue ?? 0
+        lastMonthSum += result[childIndex].lastMonthValue
+        lastYearSum += result[childIndex].lastYearValue
+      }
+
+      if (rule.sub) {
+        for (const child of rule.sub) {
+          const childIndex = descMap.get(normDesc(child))
+          if (childIndex === undefined) continue
+          forecastSum -= result[childIndex].forecastValue
+          budgetSum -= result[childIndex].budgetValue
+          actualSum -= result[childIndex].actualValue ?? 0
+          lastMonthSum -= result[childIndex].lastMonthValue
+          lastYearSum -= result[childIndex].lastYearValue
         }
-        if (rule.sub) {
-          for (const child of rule.sub) {
-            const ci = descMap.get(normDesc(child))
-            if (ci !== undefined) { fSum -= result[ci].forecastValue }
-          }
-        }
+      }
 
-        const fv = Math.round(fSum * 100) / 100
-        const bv = result[idx].budgetValue // Budget stays as imported from Excel
-        const v = Math.round((fv - bv) * 100) / 100
-        result[idx] = { ...result[idx], forecastValue: fv, variance: v, variancePercent: bv !== 0 ? Math.round(((fv - bv) / bv) * 100 * 100) / 100 : 0 }
+      const forecastValue = roundMoney(forecastSum)
+      const budgetValue = roundMoney(budgetSum)
+      const actualValue = roundMoney(actualSum)
+      const lastMonthValue = roundMoney(lastMonthSum)
+      const lastYearValue = roundMoney(lastYearSum)
+      const variance = roundMoney(forecastValue - budgetValue)
+
+      result[idx] = {
+        ...result[idx],
+        forecastValue,
+        budgetValue,
+        actualValue,
+        lastMonthValue,
+        lastYearValue,
+        variance,
+        variancePercent: budgetValue !== 0 ? roundMoney(((forecastValue - budgetValue) / budgetValue) * 100) : 0,
       }
     }
-  } else {
-    // In summary mode, just recalculate variance from stored forecast & budget values
-    for (let i = 0; i < result.length; i++) {
-      const fv = result[i].forecastValue
-      const bv = result[i].budgetValue
-      const v = Math.round((fv - bv) * 100) / 100
-      result[i] = { ...result[i], variance: v, variancePercent: bv !== 0 ? Math.round(((fv - bv) / bv) * 100 * 100) / 100 : 0 }
+  }
+
+  // Step 3: Ensure non-subtotal rows keep a variance that matches their current values.
+  for (let i = 0; i < result.length; i++) {
+    const fv = result[i].forecastValue
+    const bv = result[i].budgetValue
+    const variance = roundMoney(fv - bv)
+    result[i] = {
+      ...result[i],
+      variance,
+      variancePercent: bv !== 0 ? roundMoney(((fv - bv) / bv) * 100) : 0,
+    }
+  }
+
+  return result
+}
+
+function recomputeLastMonthActualsMap(source: Map<string, number>): Map<string, number> {
+  if (source.size === 0) return source
+
+  const result = new Map(source)
+
+  for (let month = 1; month <= 12; month++) {
+    for (const rule of SUBTOTAL_RULES) {
+      const targetKey = `${rule.desc}\t${month}`
+      const childKeys = [
+        ...rule.add.map((child) => `${child}\t${month}`),
+        ...(rule.sub ?? []).map((child) => `${child}\t${month}`),
+      ]
+      const shouldDerive = result.has(targetKey) || childKeys.some((key) => result.has(key))
+      if (!shouldDerive) continue
+
+      let total = 0
+      for (const child of rule.add) {
+        total += result.get(`${child}\t${month}`) ?? 0
+      }
+      if (rule.sub) {
+        for (const child of rule.sub) {
+          total -= result.get(`${child}\t${month}`) ?? 0
+        }
+      }
+
+      result.set(targetKey, roundMoney(total))
     }
   }
 
@@ -1342,10 +1403,9 @@ export default function ForecastPage() {
     }
   }
 
-  // ── Recompute subtotals & override overhead allocations for display ──
-  // In summary view (all branches), skip subtotal recalculation — DB values are already correct sums.
-  const isSummaryView = selectedBranch === ALL_BRANCHES_ID
-  const processedForecasts = useMemo(() => recomputeAllSubtotals(forecasts, isSummaryView), [forecasts, isSummaryView])
+  // ── Recompute subtotals for display so HQ and branch views use the same math ──
+  const processedForecasts = useMemo(() => recomputeAllSubtotals(forecasts), [forecasts])
+  const processedLastMonthActuals = useMemo(() => recomputeLastMonthActualsMap(lastMonthActuals), [lastMonthActuals])
 
   const descriptions = [...new Set(processedForecasts.map(f => f.description))]
   const filteredByCategory =
@@ -1467,7 +1527,7 @@ export default function ForecastPage() {
         const budgetVal = f ? f.budgetValue : 0
         const lastYearVal = f ? f.lastYearValue : 0
         const key = `${desc}\t${m}`
-        const actualsVal = lastMonthActuals?.get(key)
+        const actualsVal = processedLastMonthActuals.get(key)
 
         row.push(
           forecastVal.toFixed(2),
@@ -2078,7 +2138,7 @@ export default function ForecastPage() {
                       autoScrollKey={`${selectedBranch}-${currentYear}-${currentMonth}`}
                       onUpdateForecast={handleUpdateForecast}
                       editable={selectedBranch !== ALL_BRANCHES_ID}
-                      lastMonthActuals={lastMonthActuals}
+                      lastMonthActuals={processedLastMonthActuals}
                       editedCells={editedCells}
                       monthStatuses={monthStatuses}
                       lockedMonths={completedMonths}
