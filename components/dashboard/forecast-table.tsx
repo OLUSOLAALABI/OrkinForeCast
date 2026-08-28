@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, Fragment } from "react"
+import { useState, useEffect, useMemo, useRef, Fragment } from "react"
 import {
   Table,
   TableBody,
@@ -314,6 +314,7 @@ function BranchBreakdownContent({
   description,
   summaryBranchIds,
   branchMeta,
+  summaryBranchMetrics,
   currentYear,
   currentMonth,
   breakdownVersion,
@@ -322,6 +323,7 @@ function BranchBreakdownContent({
   description: string
   summaryBranchIds: string[]
   branchMeta: BranchMeta[]
+  summaryBranchMetrics?: Map<string, Map<string, { forecast: number; budget: number; actuals?: number }>>
   currentYear: number
   currentMonth: number
   breakdownVersion: number
@@ -331,7 +333,38 @@ function BranchBreakdownContent({
   const [loading, setLoading] = useState(true)
   const [errored, setErrored] = useState(false)
 
+  const derivedRows = useMemo(() => {
+    if (!summaryBranchMetrics) return null
+
+    return branchMeta
+      .filter((b) => summaryBranchIds.includes(b.id))
+      .map((b) => {
+        const metric = summaryBranchMetrics.get(b.id)?.get(description)
+        return {
+          branchId: b.id,
+          name: b.name,
+          code: b.code,
+          forecast: metric?.forecast ?? 0,
+          budget: metric?.budget ?? 0,
+          actuals: metric?.actuals,
+        }
+      })
+      .sort((a, b) => {
+        const na = parseInt(a.code, 10)
+        const nb = parseInt(b.code, 10)
+        if (!isNaN(na) && !isNaN(nb)) return na - nb
+        return a.code.localeCompare(b.code)
+      })
+  }, [summaryBranchMetrics, branchMeta, summaryBranchIds, description])
+
   useEffect(() => {
+    if (derivedRows) {
+      setRows(derivedRows)
+      setLoading(false)
+      setErrored(false)
+      return
+    }
+
     let cancelled = false
     const scopeKey = [...summaryBranchIds].sort().join(",")
     const cacheKey = `${description}|${currentYear}|${currentMonth}|${scopeKey}|${breakdownVersion}`
@@ -415,7 +448,7 @@ function BranchBreakdownContent({
     return () => {
       cancelled = true
     }
-  }, [description, currentYear, currentMonth, summaryBranchIds, branchMeta, breakdownVersion])
+  }, [derivedRows, description, currentYear, currentMonth, summaryBranchIds, branchMeta, breakdownVersion])
 
   const totals = rows.reduce((sum, row) => ({
     forecast: sum.forecast + row.forecast,
@@ -515,6 +548,7 @@ type ForecastTableProps = {
   isSummary?: boolean
   summaryBranchIds?: string[]
   branchMeta?: BranchMeta[]
+  summaryBranchMetrics?: Map<string, Map<string, { forecast: number; budget: number; actuals?: number }>>
   breakdownVersion?: number
   onSelectBranch?: (branchId: string, description: string) => void
 }
@@ -544,6 +578,7 @@ export function ForecastTable({
   isSummary = false,
   summaryBranchIds = [],
   branchMeta = [],
+  summaryBranchMetrics,
   breakdownVersion = 0,
   onSelectBranch,
 }: ForecastTableProps) {
@@ -990,6 +1025,7 @@ export function ForecastTable({
                         description={description}
                         summaryBranchIds={summaryBranchIds}
                         branchMeta={branchMeta}
+                        summaryBranchMetrics={summaryBranchMetrics}
                         currentYear={currentYear}
                         currentMonth={currentMonth}
                         breakdownVersion={breakdownVersion}
