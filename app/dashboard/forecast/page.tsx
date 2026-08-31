@@ -335,6 +335,24 @@ function recomputeSubtotalMetricMap(source: Map<string, number>): Map<string, nu
   return result
 }
 
+function applyBudgetOnlyForecastOverrides(
+  forecastSource: Map<string, number>,
+  budgetSource: Map<string, number>
+): Map<string, number> {
+  if (forecastSource.size === 0 && budgetSource.size === 0) return forecastSource
+
+  const result = new Map(forecastSource)
+  const keys = new Set([...forecastSource.keys(), ...budgetSource.keys()])
+
+  keys.forEach((key) => {
+    const [description] = key.split("\t")
+    if (!BUDGET_ONLY_LINES.has(normDesc(description))) return
+    result.set(key, budgetSource.get(key) ?? 0)
+  })
+
+  return result
+}
+
 export default function ForecastPage() {
   const searchParams = useSearchParams()
   const branchFromUrl = searchParams.get("branch")
@@ -453,8 +471,13 @@ export default function ForecastPage() {
     })
 
     summaryBranchIds.forEach((branchId) => {
-      const forecastMap = recomputeSubtotalMetricMap(forecastByBranch.get(branchId) ?? new Map<string, number>())
       const budgetMap = recomputeSubtotalMetricMap(budgetByBranch.get(branchId) ?? new Map<string, number>())
+      const forecastMap = recomputeSubtotalMetricMap(
+        applyBudgetOnlyForecastOverrides(
+          forecastByBranch.get(branchId) ?? new Map<string, number>(),
+          budgetMap
+        )
+      )
       const actualsMap = recomputeSubtotalMetricMap(actualsByBranch.get(branchId) ?? new Map<string, number>())
       const branchMetrics = new Map<string, SummaryBranchMetric>()
       const keys = new Set([...forecastMap.keys(), ...budgetMap.keys(), ...actualsMap.keys()])
