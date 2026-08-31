@@ -82,7 +82,7 @@ type ForecastMonthStatus = {
 type CachedForecast = {
   forecasts: ForecastResult[]
   rawForecastRows: { branch_id: string; description: string; month: number; forecast_value: number; budget_value: number }[]
-  summaryActualRows: { branch_id: string; description: string; month: number; value: number }[]
+  summaryActualRows: { branch_id: string; description: string; year: number; month: number; value: number }[]
   monthStatuses: Record<number, ForecastMonthStatus>
   editedCells: Set<string>
 }
@@ -353,6 +353,14 @@ function applyBudgetOnlyForecastOverrides(
   return result
 }
 
+function getPreviousMonthPeriod(year: number, month: number) {
+  if (month <= 1) {
+    return { year: year - 1, month: 12 }
+  }
+
+  return { year, month: month - 1 }
+}
+
 export default function ForecastPage() {
   const searchParams = useSearchParams()
   const branchFromUrl = searchParams.get("branch")
@@ -367,7 +375,7 @@ export default function ForecastPage() {
   const [userId, setUserId] = useState<string | null>(null)
   const [forecasts, setForecasts] = useState<ForecastResult[]>([])
   const [rawForecastRows, setRawForecastRows] = useState<{ branch_id: string; description: string; month: number; forecast_value: number; budget_value: number }[]>([])
-  const [summaryActualRows, setSummaryActualRows] = useState<{ branch_id: string; description: string; month: number; value: number }[]>([])
+  const [summaryActualRows, setSummaryActualRows] = useState<{ branch_id: string; description: string; year: number; month: number; value: number }[]>([])
   const [loading, setLoading] = useState(true)
   const [needsBranchAssignment, setNeedsBranchAssignment] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -439,6 +447,11 @@ export default function ForecastPage() {
     [router, currentMonth]
   )
 
+  const previousActualPeriod = useMemo(
+    () => getPreviousMonthPeriod(currentYear, currentMonth),
+    [currentYear, currentMonth]
+  )
+
   const summaryBranchMetrics = useMemo(() => {
     const result = new Map<string, Map<string, SummaryBranchMetric>>()
     if (selectedBranch !== ALL_BRANCHES_ID || summaryBranchIds.length === 0) return result
@@ -465,7 +478,11 @@ export default function ForecastPage() {
     })
 
     summaryActualRows.forEach((row) => {
-      if (row.month !== currentMonth || !scopedBranchIds.has(row.branch_id)) return
+      if (
+        row.year !== previousActualPeriod.year ||
+        row.month !== previousActualPeriod.month ||
+        !scopedBranchIds.has(row.branch_id)
+      ) return
       const key = `${row.description}\t${row.month}`
       ensureMap(actualsByBranch, row.branch_id).set(key, Number(row.value) || 0)
     })
@@ -480,15 +497,18 @@ export default function ForecastPage() {
       )
       const actualsMap = recomputeSubtotalMetricMap(actualsByBranch.get(branchId) ?? new Map<string, number>())
       const branchMetrics = new Map<string, SummaryBranchMetric>()
-      const keys = new Set([...forecastMap.keys(), ...budgetMap.keys(), ...actualsMap.keys()])
+      const descriptions = new Set<string>()
 
-      keys.forEach((key) => {
-        const [description, monthStr] = key.split("\t")
-        if (Number(monthStr) !== currentMonth) return
+      ;[...forecastMap.keys(), ...budgetMap.keys(), ...actualsMap.keys()].forEach((key) => {
+        const [description] = key.split("\t")
+        descriptions.add(description)
+      })
+
+      descriptions.forEach((description) => {
         branchMetrics.set(description, {
-          forecast: forecastMap.get(key) ?? 0,
-          budget: budgetMap.get(key) ?? 0,
-          actuals: actualsMap.get(key),
+          forecast: forecastMap.get(`${description}\t${currentMonth}`) ?? 0,
+          budget: budgetMap.get(`${description}\t${currentMonth}`) ?? 0,
+          actuals: actualsMap.get(`${description}\t${previousActualPeriod.month}`),
         })
       })
 
@@ -496,7 +516,7 @@ export default function ForecastPage() {
     })
 
     return result
-  }, [selectedBranch, summaryBranchIds, rawForecastRows, summaryActualRows, currentMonth])
+  }, [selectedBranch, summaryBranchIds, rawForecastRows, summaryActualRows, currentMonth, previousActualPeriod])
 
   // Per-branch breakdown for region/HQ summary view (revenue + expenses + contribution b/4 overhead for current month)
   // Derived from current-month child rows so it matches the corrected HQ table math.
@@ -749,17 +769,17 @@ export default function ForecastPage() {
         }
 
         const fetchPagedSummaryActualRows = async () => {
-          const rows: { branch_id: string; description: string; month: number; value: number }[] = []
+          const rows: { branch_id: string; description: string; year: number; month: number; value: number }[] = []
           const pageSize = 1000
           let from = 0
 
           while (true) {
             const { data, error } = await supabase
               .from("last_month_actuals")
-              .select("branch_id, description, month, value")
+              .select("branch_id, description, year, month, value")
               .in("branch_id", branchIds)
-              .eq("year", currentYear)
-              .eq("month", currentMonth)
+              .eq("year", previousActualPeriod.year)
+              .eq("month", previousActualPeriod.month)
               .range(from, from + pageSize - 1)
 
             if (error) throw error
@@ -927,7 +947,7 @@ export default function ForecastPage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedBranch, selectedRegionId, supabase, currentYear, currentMonth, branches, loadMonthStatuses])
+  }, [selectedBranch, selectedRegionId, supabase, currentYear, currentMonth, branches, loadMonthStatuses, previousActualPeriod])
 
   const fetchVersionRef = useRef(0)
 

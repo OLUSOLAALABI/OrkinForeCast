@@ -310,6 +310,14 @@ type BranchBreakdownRow = {
 // description + year + month + sorted branch ids (scope changes with region filter).
 const breakdownCache = new Map<string, BranchBreakdownRow[]>()
 
+function getPreviousMonthPeriod(year: number, month: number) {
+  if (month <= 1) {
+    return { year: year - 1, month: 12 }
+  }
+
+  return { year, month: month - 1 }
+}
+
 function BranchBreakdownContent({
   description,
   summaryBranchIds,
@@ -332,6 +340,10 @@ function BranchBreakdownContent({
   const [rows, setRows] = useState<BranchBreakdownRow[]>([])
   const [loading, setLoading] = useState(true)
   const [errored, setErrored] = useState(false)
+  const previousActualPeriod = useMemo(
+    () => getPreviousMonthPeriod(currentYear, currentMonth),
+    [currentYear, currentMonth]
+  )
 
   const derivedRows = useMemo(() => {
     if (!summaryBranchMetrics) return null
@@ -392,8 +404,8 @@ function BranchBreakdownContent({
             .from("last_month_actuals")
             .select("branch_id, value")
             .in("branch_id", summaryBranchIds)
-            .eq("year", currentYear)
-            .eq("month", currentMonth)
+            .eq("year", previousActualPeriod.year)
+            .eq("month", previousActualPeriod.month)
             .eq("description", description),
         ])
 
@@ -448,7 +460,7 @@ function BranchBreakdownContent({
     return () => {
       cancelled = true
     }
-  }, [derivedRows, description, currentYear, currentMonth, summaryBranchIds, branchMeta, breakdownVersion])
+  }, [derivedRows, description, currentYear, currentMonth, summaryBranchIds, branchMeta, breakdownVersion, previousActualPeriod])
 
   const totals = rows.reduce((sum, row) => ({
     forecast: sum.forecast + row.forecast,
@@ -462,7 +474,7 @@ function BranchBreakdownContent({
       <div className="px-3 py-2 border-b bg-muted sticky top-0">
         <p className="text-sm font-semibold leading-tight">{description}</p>
         <p className="text-[11px] text-muted-foreground">
-          Branch breakdown · {getShortMonthName(currentMonth)} {currentYear}
+          Branch breakdown · {getShortMonthName(currentMonth)} {currentYear} · Prev actuals: {getShortMonthName(previousActualPeriod.month)} {previousActualPeriod.year}
         </p>
       </div>
 
@@ -482,7 +494,7 @@ function BranchBreakdownContent({
             <span>Branch</span>
             <span className="text-right">Forecast</span>
             <span className="text-right">Budget</span>
-            <span className="text-right">Actuals</span>
+            <span className="text-right">Prev Actuals</span>
           </div>
           <ul className="divide-y">
             {rows.map((r) => (
