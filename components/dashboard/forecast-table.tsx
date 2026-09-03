@@ -285,9 +285,9 @@ function shouldShowExpensePercentage(description: string) {
   return templateIndex >= EXPENSE_PERCENT_START_INDEX
 }
 
-function formatRevenueShare(value: number | undefined, revenue: number | undefined) {
-  if (value === undefined || revenue === undefined || Math.abs(revenue) < 0.005) return null
-  return `${((value / revenue) * 100).toFixed(1)}%`
+function formatMetricShare(value: number | undefined, total: number | undefined) {
+  if (value === undefined || total === undefined || Math.abs(total) < 0.005) return null
+  return `${((value / total) * 100).toFixed(1)}%`
 }
 
 function isKpiLine(description: string) {
@@ -469,6 +469,25 @@ function BranchBreakdownContent({
     actualsCount: sum.actualsCount + (row.actuals === undefined ? 0 : 1),
   }), { forecast: 0, budget: 0, actuals: 0, actualsCount: 0 })
 
+  const renderBreakdownMetricStack = ({
+    value,
+    total,
+    amountClassName,
+  }: {
+    value: number | undefined
+    total: number
+    amountClassName: string
+  }) => {
+    const percent = formatMetricShare(value, total)
+
+    return (
+      <span className="flex min-h-9 flex-col items-end justify-center leading-tight">
+        {percent && <span className="text-[10px] text-muted-foreground">{percent}</span>}
+        <span className={amountClassName}>{value === undefined ? "-" : formatCurrency(value)}</span>
+      </span>
+    )
+  }
+
   return (
     <div className="w-[32rem] max-h-[60vh] overflow-y-auto">
       <div className="px-3 py-2 border-b bg-muted sticky top-0">
@@ -509,11 +528,21 @@ function BranchBreakdownContent({
                     <span className="block truncate text-sm font-medium">{r.name}</span>
                     <span className="block text-[10px] uppercase text-muted-foreground">{r.code}</span>
                   </span>
-                  <span className="text-right text-sm font-semibold tabular-nums">{formatCurrency(r.forecast)}</span>
-                  <span className="text-right text-sm tabular-nums text-muted-foreground">{formatCurrency(r.budget)}</span>
-                  <span className="text-right text-sm tabular-nums text-muted-foreground">
-                    {r.actuals === undefined ? "-" : formatCurrency(r.actuals)}
-                  </span>
+                  {renderBreakdownMetricStack({
+                    value: r.forecast,
+                    total: totals.forecast,
+                    amountClassName: "text-right text-sm font-semibold tabular-nums",
+                  })}
+                  {renderBreakdownMetricStack({
+                    value: r.budget,
+                    total: totals.budget,
+                    amountClassName: "text-right text-sm tabular-nums text-muted-foreground",
+                  })}
+                  {renderBreakdownMetricStack({
+                    value: r.actuals,
+                    total: totals.actuals,
+                    amountClassName: "text-right text-sm tabular-nums text-muted-foreground",
+                  })}
                 </button>
               </li>
             ))}
@@ -809,10 +838,10 @@ export function ForecastTable({
     containerClassName?: string
     percentClassName?: string
   }) => {
-    const percent = showPercent ? formatRevenueShare(value, revenue) : null
+    const percent = showPercent ? formatMetricShare(value, revenue) : null
 
     return (
-      <div className={cn("flex min-h-[2.25rem] flex-col justify-center leading-tight", containerClassName)}>
+      <div className={cn("flex min-h-9 flex-col justify-center leading-tight", containerClassName)}>
         {percent && <span className={percentClassName}>{percent}</span>}
         <span className={amountClassName}>{value !== undefined ? formatCurrency(value) : "-"}</span>
       </div>
