@@ -365,6 +365,7 @@ export default function ForecastPage() {
   const searchParams = useSearchParams()
   const branchFromUrl = searchParams.get("branch")
   const monthFromUrl = Number(searchParams.get("month"))
+  const descriptionFromUrl = searchParams.get("description")
   const router = useRouter()
   const [branches, setBranches] = useState<Branch[]>([])
   // Default to summary (all branches) so HQ/Region Admin see rollup immediately, not "Select a Branch"
@@ -441,8 +442,13 @@ export default function ForecastPage() {
   )
 
   const handleSelectBranch = useCallback(
-    (branchId: string) => {
-      router.push(`/dashboard/forecast?branch=${branchId}&month=${currentMonth}`, { scroll: false })
+    (branchId: string, description: string) => {
+      const params = new URLSearchParams({
+        branch: branchId,
+        month: String(currentMonth),
+        description,
+      })
+      router.push(`/dashboard/forecast?${params.toString()}`, { scroll: false })
     },
     [router, currentMonth]
   )
@@ -966,6 +972,13 @@ export default function ForecastPage() {
       setCurrentMonth(monthFromUrl)
     }
   }, [monthFromUrl])
+
+  useEffect(() => {
+    if (descriptionFromUrl) {
+      setSelectedDescription("all")
+      setSearchQuery("")
+    }
+  }, [descriptionFromUrl])
 
   useEffect(() => {
     if (!selectedBranch) return
@@ -2250,6 +2263,7 @@ export default function ForecastPage() {
                       forecasts={filteredForecasts}
                       currentMonth={currentMonth}
                       autoScrollKey={`${selectedBranch}-${currentYear}-${currentMonth}`}
+                      targetDescription={descriptionFromUrl}
                       onUpdateForecast={handleUpdateForecast}
                       editable={selectedBranch !== ALL_BRANCHES_ID}
                       lastMonthActuals={processedLastMonthActuals}
